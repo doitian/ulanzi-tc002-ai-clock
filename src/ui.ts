@@ -11,7 +11,7 @@ export function renderUi(): string {
   h1 { font-size: 1.4rem; }
   h2 { font-size: 1.05rem; margin-top: 32px; border-bottom: 1px solid #333; padding-bottom: 6px; }
   label { display: block; margin: 12px 0 4px; font-size: 0.88rem; color: #bbb; }
-  input[type=text], textarea {
+  input[type=text], select, textarea {
     width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px;
     border: 1px solid #444; background: #1c1c1c; color: #eee; font: inherit;
   }
@@ -71,6 +71,14 @@ export function renderUi(): string {
     <label for="f_model">Model</label>
     <input type="text" id="f_model" placeholder="gpt-4o">
   </div>
+  <div>
+    <label for="f_thinking">Thinking (DashScope reasoning models)</label>
+    <select id="f_thinking">
+      <option value="default">default (provider decides)</option>
+      <option value="on">on (enable_thinking: true)</option>
+      <option value="off">off (enable_thinking: false)</option>
+    </select>
+  </div>
 </div>
 <div class="row">
   <div>
@@ -116,8 +124,8 @@ image is sent at most once per hour.</div>
 </div>
 
 <script>
-var FIELDS = ['openaiBaseUrl','openaiModel','timezone','weatherLocation','agendaCalendars','holidayCalendars','eventExclusionPattern','tc002BaseUrl'];
-var IDS = { openaiBaseUrl:'f_base', openaiModel:'f_model', timezone:'f_tz', weatherLocation:'f_weather',
+var FIELDS = ['openaiBaseUrl','openaiModel','openaiThinking','timezone','weatherLocation','agendaCalendars','holidayCalendars','eventExclusionPattern','tc002BaseUrl'];
+var IDS = { openaiBaseUrl:'f_base', openaiModel:'f_model', openaiThinking:'f_thinking', timezone:'f_tz', weatherLocation:'f_weather',
   agendaCalendars:'f_agenda', holidayCalendars:'f_holiday', eventExclusionPattern:'f_exclude',
   tc002BaseUrl:'f_tc002' };
 

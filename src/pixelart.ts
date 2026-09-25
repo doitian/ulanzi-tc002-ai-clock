@@ -77,9 +77,6 @@ function userPrompt(theme: Theme): string {
   return p;
 }
 
-// Streams the chat completion (required by reasoning models on OpenAI-compatible
-// providers such as DashScope compatible-mode, and avoids gateway timeouts like
-// HTTP 524 on slow models).
 async function chatCompletion(
   env: Env,
   cfg: Config,
@@ -93,7 +90,15 @@ async function chatCompletion(
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ model: cfg.openaiModel, messages, temperature: 0.7, stream: true }),
+    body: JSON.stringify({
+      model: cfg.openaiModel,
+      messages,
+      temperature: 0.7,
+      stream: true,
+      // DashScope-specific; omitted by default so other providers don't reject it.
+      ...(cfg.openaiThinking === 'on' ? { enable_thinking: true } : {}),
+      ...(cfg.openaiThinking === 'off' ? { enable_thinking: false } : {}),
+    }),
   });
   if (!res.ok) throw new Error(`LLM API error ${res.status}: ${(await res.text()).slice(0, 500)}`);
   if (!res.body) throw new Error('LLM API returned no body');
@@ -102,7 +107,9 @@ async function chatCompletion(
   const decoder = new TextDecoder();
   let buffer = '';
   let content = '';
-  let reported = 0;
+  let reasoning = 0;
+  let reportedContent = 0;
+  let reportedReasoning = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -116,16 +123,23 @@ async function chatCompletion(
         const data = line.slice(5).trim();
         if (!data || data === '[DONE]') continue;
         try {
-          const delta = (JSON.parse(data) as { choices?: { delta?: { content?: string } }[] })
-            .choices?.[0]?.delta?.content;
-          if (delta) content += delta;
-        } catch {
-          // incomplete JSON fragment - ignore
-        }
+          const delta = (JSON.parse(data) as {
+            choices?: { delta?: { content?: string; reasoning_content?: string } }[];
+          }).choices?.[0]?.delta;
+          if (delta?.reasoning_content) reasoning += delta.reasoning_content.length;
+          if (delta?.content) {
+            if (!content) onProgress?.({ step: 'llm', detail: 'receiving answer...' });
+            content += delta.content;
+          }
+        } catch {}
       }
     }
-    if (content.length - reported >= 2000) {
-      reported = content.length;
+    if (reasoning > 0 && (reportedReasoning === 0 || reasoning - reportedReasoning >= 500)) {
+      reportedReasoning = reasoning;
+      onProgress?.({ step: 'think', detail: `thinking... ${reasoning} chars` });
+    }
+    if (content.length - reportedContent >= 2000) {
+      reportedContent = content.length;
       onProgress?.({ step: 'llm', detail: `streaming... ${content.length} chars received` });
     }
   }

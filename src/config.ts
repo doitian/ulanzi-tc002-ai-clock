@@ -3,6 +3,7 @@ import type { Config, Env } from './types';
 export const DEFAULT_CONFIG: Config = {
   openaiBaseUrl: 'https://api.openai.com/v1',
   openaiModel: 'gpt-4o',
+  openaiThinking: 'default',
   timezone: 'Asia/Shanghai',
   agendaCalendars: [], // configure in the Web UI, e.g. ["alice@example.com"]
   holidayCalendars: [], // configure in the Web UI, e.g. ["Holidays in China"]

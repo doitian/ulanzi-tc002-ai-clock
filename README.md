@@ -21,9 +21,10 @@ The worker wakes **every 10 minutes, 07:00–23:59 UTC+0800** (fixed cron trigge
    - current weather at the configured location (Open-Meteo, no key needed)
 3. **Generate.** The chat model returns palette-indexed rows for a 52×16 matrix (index 0 =
    `#000000` = LED off, 1–8 GIF frames when motion helps). The worker validates the grid and
-   encodes a GIF in pure JS (`gifenc`) — no image API needed. Chat completions are streamed,
-   which reasoning models (e.g. QwQ, DeepSeek-R1 on DashScope compatible-mode) require and
-   which avoids gateway timeouts (HTTP 524) on slow models.
+   encodes a GIF in pure JS (`gifenc`) — no image API needed. Chat completions stream live
+   progress, including thinking activity when the provider emits `reasoning_content`.
+   For `qwen3.8-max`, set **Thinking** to **off** in the Web UI: the default thinking mode
+   can run for many minutes and lead to HTTP 524 timeouts.
 4. **Send.** The GIF is POSTed as a data URL to `<tc002-base-url>/api/apps/random`.
 
 Manual generation from the Web UI bypasses the dedupe and throttle.
@@ -78,8 +79,9 @@ and `/auth/google/callback` requires that session.
 
 ### Configurable via UI
 
-OpenAI endpoint & model, timezone, agenda calendars, holiday calendars, skip-all-day toggle,
-event exclusion pattern (regex or substring), weather location, TC002 base URL.
+OpenAI endpoint & model, thinking mode (DashScope reasoning models), timezone, agenda
+calendars, holiday calendars, skip-all-day toggle, event exclusion pattern (regex or
+substring), weather location, TC002 base URL.
 All credentials (`OPENAI_API_KEY`, `TC002_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `ALLOWED_EMAIL`) stay secrets.
 
