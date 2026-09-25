@@ -82,7 +82,7 @@ async function chatCompletion(
     body: JSON.stringify({
       model: cfg.openaiModel,
       messages,
-      temperature: 0.7,
+      temperature: 1.0,
       stream: true,
       ...(cfg.openaiThinking === 'on' ? { enable_thinking: true } : {}),
       ...(cfg.openaiThinking === 'off' ? { enable_thinking: false } : {}),
