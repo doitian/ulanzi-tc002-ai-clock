@@ -28,46 +28,27 @@ Manual generation from the Web UI bypasses the dedupe and throttle.
 
 ## Setup
 
-```powershell
-npm install
-```
+Deployment is automated with the Cloudflare GitHub App (Workers Builds); `wrangler.toml`
+contains no bindings or variables.
 
-1. **KV namespace**
-
-   ```powershell
-   npx wrangler kv namespace create KV
-   ```
-
-   Paste the returned `id` into `wrangler.toml`.
-
-2. **Vars** in `wrangler.toml`: set `TC002_BASE` and `GOOGLE_CLIENT_ID`.
-
-3. **Secrets**
-
-   ```powershell
-   npx wrangler secret put OPENAI_API_KEY
-   npx wrangler secret put TC002_TOKEN
-   npx wrangler secret put GOOGLE_CLIENT_SECRET
-   npx wrangler secret put ADMIN_TOKEN   # password for the Web UI / API
-   ```
-
+1. **Connect the repo**: Cloudflare dashboard → Workers → *Create* → *Import a repository* →
+   pick this repo. No build command is needed (wrangler bundles `src/index.ts` directly).
+2. **KV binding**: add a KV namespace binding named `KV` (Settings → Bindings; the namespace
+   is created and attached there).
+3. **Variables and secrets** (Settings → Variables and Secrets):
+   - Variables: `TC002_BASE` (e.g. `http://192.168.1.100`), `GOOGLE_CLIENT_ID`
+   - Secrets: `OPENAI_API_KEY`, `TC002_TOKEN`, `GOOGLE_CLIENT_SECRET`,
+     `ADMIN_TOKEN` (password for the Web UI / API)
 4. **Google OAuth** (Calendar API)
    - Google Cloud Console → create an OAuth client (type: *Web application*).
    - Enable the **Google Calendar API**.
    - Add authorized redirect URI: `https://<your-worker>.workers.dev/auth/google/callback`
-     (also `http://localhost:8787/auth/google/callback` if you test with `npm run dev`).
+     (also `http://localhost:8787/auth/google/callback` if you test locally).
    - If the OAuth consent screen stays in "Testing" mode, refresh tokens expire after 7 days —
      publish the app to avoid reconnecting weekly.
    - All agenda/holiday calendars you configure must be visible in the *connected* account's
      calendar list (share/subscribe them there). Calendars are matched by id or name.
-
-5. **Deploy**
-
-   ```powershell
-   npx wrangler deploy
-   ```
-
-6. Open `https://<your-worker>.workers.dev`, enter `ADMIN_TOKEN`, connect Google, then fill in
+5. Open `https://<your-worker>.workers.dev`, enter `ADMIN_TOKEN`, connect Google, then fill in
    the configuration (agenda/holiday calendars, weather location, ...) and press
    **Generate & Send** to test.
 
@@ -96,6 +77,17 @@ Tokens (`OPENAI_API_KEY`, `TC002_TOKEN`, `GOOGLE_CLIENT_SECRET`, `ADMIN_TOKEN`) 
 cp .dev.vars.example .dev.vars   # fill in secrets for `wrangler dev`
 npm run dev
 ```
+
+`wrangler.toml` declares no bindings, so local dev needs a config overlay that adds the KV
+namespace: create `wrangler.dev.toml` (git-ignored) with
+
+```toml
+[[kv_namespaces]]
+binding = "KV"
+id = "<id from: npx wrangler kv namespace create KV>"
+```
+
+and run `npx wrangler dev --config wrangler.dev.toml`.
 
 Note: the scheduled handler only runs under `wrangler dev --test-scheduled`
 (then call `curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"`), and the TC002 must be

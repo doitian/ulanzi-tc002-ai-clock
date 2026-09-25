@@ -10,20 +10,10 @@ compatibility_date = "2025-01-01"
 [triggers]
 crons = ["*/10 23,0-15 * * *"]
 
-# Create with: wrangler kv namespace create KV
-# then paste the returned id below.
-[[kv_namespaces]]
-binding = "KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-
-[vars]
-# Base URL of the Ulanzi TC002 on your LAN (can be overridden in the Web UI).
-TC002_BASE = "http://192.168.1.100"
-# OAuth client id from Google Cloud Console (Calendar API).
-GOOGLE_CLIENT_ID = ""
-
-# Secrets (set with: wrangler secret put <NAME>):
-#   OPENAI_API_KEY        - key for the OpenAI-compatible chat provider
-#   TC002_TOKEN           - bearer token for the TC002 API
-#   GOOGLE_CLIENT_SECRET  - OAuth client secret
-#   ADMIN_TOKEN           - bearer token required by the Web UI / API
+# Bindings and variables are intentionally NOT declared in this repo.
+# Deployment is automated via the Cloudflare GitHub App (Workers Builds);
+# create/attach them in the dashboard (Settings -> Bindings / Variables and Secrets):
+#
+#   KV namespace binding: KV
+#   Variables:            TC002_BASE, GOOGLE_CLIENT_ID
+#   Secrets:              OPENAI_API_KEY, TC002_TOKEN, GOOGLE_CLIENT_SECRET, ADMIN_TOKEN
