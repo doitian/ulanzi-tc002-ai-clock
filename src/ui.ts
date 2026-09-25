@@ -231,7 +231,7 @@ el('saveConfig').onclick = function () {
 var genLog = [];
 function logLine(text, cls) {
   genLog.push(text);
-  say('genStatus', genLog.join('\n'), cls || '');
+  say('genStatus', genLog.join('\\n'), cls || '');
 }
 
 function handleGenEvent(evt) {
@@ -269,10 +269,10 @@ el('generate').onclick = function () {
         if (r.done) return;
         buf += decoder.decode(r.value, { stream: true });
         var idx;
-        while ((idx = buf.indexOf('\n\n')) >= 0) {
+        while ((idx = buf.indexOf('\\n\\n')) >= 0) {
           var raw = buf.slice(0, idx);
           buf = buf.slice(idx + 2);
-          raw.split('\n').forEach(function (line) {
+          raw.split('\\n').forEach(function (line) {
             if (line.indexOf('data:') !== 0) return;
             try { handleGenEvent(JSON.parse(line.slice(5))); } catch (e) {}
           });
