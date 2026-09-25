@@ -5,8 +5,8 @@ and pushes it to an Ulanzi TC002 LED clock — on a schedule, or on demand from 
 
 ## How it works
 
-The worker wakes **every 10 minutes** (fixed cron trigger in `wrangler.toml`; Cloudflare cron
-is always UTC). On each wake:
+The worker wakes **every 10 minutes, 07:00–23:59 UTC+0800** (fixed cron trigger in
+`wrangler.toml`; Cloudflare cron is always UTC, hence `*/10 23,0-15 * * *`). On each wake:
 
 1. **Check the agenda calendars.** If a Google Calendar event is *active* (ongoing, or starting
    within 15 minutes; all-day and excluded-title events are skipped; the one whose start is
