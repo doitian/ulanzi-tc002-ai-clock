@@ -16,4 +16,4 @@ crons = ["*/10 23,0-15 * * *"]
 #
 #   KV namespace binding: KV
 #   Variables:            TC002_BASE, GOOGLE_CLIENT_ID
-#   Secrets:              OPENAI_API_KEY, TC002_TOKEN, GOOGLE_CLIENT_SECRET, ADMIN_TOKEN
+#   Secrets:              OPENAI_API_KEY, TC002_TOKEN, GOOGLE_CLIENT_SECRET, ALLOWED_EMAIL

@@ -7,7 +7,7 @@ interface GoogleTokens {
 }
 
 const TOKEN_KEY = 'google_tokens';
-const SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+const SCOPE = 'openid email https://www.googleapis.com/auth/calendar.readonly';
 
 export interface RawEvent {
   id?: string;
@@ -41,7 +41,9 @@ export function buildAuthUrl(env: Env, redirectUri: string, state: string): stri
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
 
-export async function handleAuthCallback(env: Env, code: string, redirectUri: string): Promise<void> {
+// Exchanges the auth code, identifies the user, enforces ALLOWED_EMAIL, and
+// stores the Google tokens. Returns the signed-in email.
+export async function handleAuthCallback(env: Env, code: string, redirectUri: string): Promise<string> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -55,14 +57,29 @@ export async function handleAuthCallback(env: Env, code: string, redirectUri: st
   });
   if (!res.ok) throw new Error(`token exchange failed: ${res.status} ${await res.text()}`);
   const data = (await res.json()) as Record<string, unknown>;
-  if (!data.refresh_token) {
-    throw new Error('Google did not return a refresh_token; revoke app access at myaccount.google.com/permissions and connect again');
+  const accessToken = String(data.access_token ?? '');
+
+  const ui = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!ui.ok) throw new Error(`userinfo failed: ${ui.status}`);
+  const info = (await ui.json()) as { email?: string };
+  const email = (info.email ?? '').toLowerCase();
+  const allowed = (env.ALLOWED_EMAIL ?? '').toLowerCase();
+  if (!allowed) throw new Error('ALLOWED_EMAIL secret is not set on the worker');
+  if (!email || email !== allowed) throw new Error(`account ${email || '(unknown)'} is not allowed`);
+
+  const existing = await env.KV.get<GoogleTokens>(TOKEN_KEY, 'json');
+  const refreshToken = data.refresh_token ? String(data.refresh_token) : existing?.refresh_token;
+  if (!refreshToken) {
+    throw new Error('Google did not return a refresh_token; revoke app access at myaccount.google.com/permissions and sign in again');
   }
   await env.KV.put(TOKEN_KEY, JSON.stringify({
-    refresh_token: String(data.refresh_token),
-    access_token: data.access_token ? String(data.access_token) : undefined,
+    refresh_token: refreshToken,
+    access_token: accessToken || undefined,
     access_token_expires: Date.now() + Number(data.expires_in ?? 3600) * 1000,
   } satisfies GoogleTokens));
+  return email;
 }
 
 async function getAccessToken(env: Env): Promise<string> {

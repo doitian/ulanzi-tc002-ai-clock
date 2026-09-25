@@ -16,6 +16,6 @@ export interface Env {
   TC002_TOKEN?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
-  ADMIN_TOKEN?: string;
+  ALLOWED_EMAIL?: string;
   TC002_BASE?: string;
 }

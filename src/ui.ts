@@ -11,7 +11,7 @@ export function renderUi(): string {
   h1 { font-size: 1.4rem; }
   h2 { font-size: 1.05rem; margin-top: 32px; border-bottom: 1px solid #333; padding-bottom: 6px; }
   label { display: block; margin: 12px 0 4px; font-size: 0.88rem; color: #bbb; }
-  input[type=text], input[type=password], textarea {
+  input[type=text], textarea {
     width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px;
     border: 1px solid #444; background: #1c1c1c; color: #eee; font: inherit;
   }
@@ -20,6 +20,7 @@ export function renderUi(): string {
   button.secondary { background: #444; }
   button:hover { filter: brightness(1.15); }
   button:disabled { opacity: 0.5; cursor: wait; }
+  a button { margin-top: 4px; }
   .row { display: flex; gap: 12px; flex-wrap: wrap; }
   .row > div { flex: 1; min-width: 230px; }
   .status { font-size: 0.85rem; color: #9ad; white-space: pre-wrap; margin-top: 10px; }
@@ -38,13 +39,17 @@ export function renderUi(): string {
 <body>
 <h1>TC002 Pixel Clock</h1>
 
-<h2>Access</h2>
-<label for="token">Admin token (stored only in this browser)</label>
-<div class="row">
-  <div><input type="password" id="token" placeholder="ADMIN_TOKEN secret"></div>
-  <div><button id="saveToken" class="secondary">Connect</button></div>
+<h2>Account <span class="badge off" id="gcalBadge" style="display:none"></span></h2>
+<div class="status" id="acctStatus">Checking sign-in...</div>
+<p id="loginRow" style="display:none"><a href="/auth/login"><button>Sign in with Google</button></a></p>
+<div id="accountRow" style="display:none">
+  <div class="status" id="acctInfo"></div>
+  <button id="logout" class="secondary">Log out</button>
+  <button id="gcalDisconnect" class="secondary">Disconnect Google calendar</button>
+  <div class="hint">Logging out keeps the stored Google tokens, so the clock keeps working.
+  Disconnect revokes calendar access for the scheduled runs too.</div>
+  <div class="status" id="gcalStatus"></div>
 </div>
-<div class="status" id="connStatus"></div>
 
 <div id="app" style="display:none">
 
@@ -55,11 +60,6 @@ export function renderUi(): string {
 <div class="status" id="genStatus"></div>
 <img class="preview" id="preview" style="display:none" alt="last generated pixel art">
 <div class="status" id="lastRun"></div>
-
-<h2>Google Calendar <span class="badge off" id="gcalBadge">unknown</span></h2>
-<button id="gcalConnect">Connect Google Calendar</button>
-<button id="gcalDisconnect" class="secondary">Disconnect</button>
-<div class="status" id="gcalStatus"></div>
 
 <h2>Configuration</h2>
 <div class="row">
@@ -116,7 +116,6 @@ image is sent at most once per hour.</div>
 </div>
 
 <script>
-var token = localStorage.getItem('adminToken') || '';
 var FIELDS = ['openaiBaseUrl','openaiModel','timezone','weatherLocation','agendaCalendars','holidayCalendars','eventExclusionPattern','tc002BaseUrl'];
 var IDS = { openaiBaseUrl:'f_base', openaiModel:'f_model', timezone:'f_tz', weatherLocation:'f_weather',
   agendaCalendars:'f_agenda', holidayCalendars:'f_holiday', eventExclusionPattern:'f_exclude',
@@ -126,7 +125,7 @@ function el(id) { return document.getElementById(id); }
 
 function api(path, opts) {
   opts = opts || {};
-  opts.headers = Object.assign({}, opts.headers, { Authorization: 'Bearer ' + token });
+  opts.headers = Object.assign({}, opts.headers);
   if (opts.body && typeof opts.body !== 'string') {
     opts.body = JSON.stringify(opts.body);
     opts.headers['Content-Type'] = 'application/json';
@@ -134,6 +133,7 @@ function api(path, opts) {
   return fetch(path, opts).then(function (r) {
     return r.text().then(function (t) {
       var d; try { d = JSON.parse(t); } catch (e) { d = { error: t }; }
+      if (r.status === 401) { showLoggedOut(); throw new Error('not signed in'); }
       if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
       return d;
     });
@@ -144,6 +144,14 @@ function say(id, text, cls) {
   var n = el(id);
   n.textContent = text;
   n.className = 'status ' + (cls || '');
+}
+
+function showLoggedOut() {
+  el('app').style.display = 'none';
+  el('accountRow').style.display = 'none';
+  el('gcalBadge').style.display = 'none';
+  el('loginRow').style.display = 'block';
+  say('acctStatus', 'Sign in with the allowed Google account to manage the clock.', '');
 }
 
 function describeLastRun(lr) {
@@ -160,14 +168,20 @@ function describeLastRun(lr) {
 
 function loadState() {
   api('/api/state').then(function (s) {
+    el('loginRow').style.display = 'none';
+    el('accountRow').style.display = 'block';
     el('app').style.display = 'block';
-    say('connStatus', 'Connected. Server time: ' + s.serverTime +
+    say('acctStatus', '', '');
+    say('acctInfo', 'Signed in as ' + s.user +
+      '\\nServer time: ' + s.serverTime +
       '\\nSecrets set: OPENAI_API_KEY=' + yesno(s.secrets.openaiApiKey) +
       ', TC002_TOKEN=' + yesno(s.secrets.tc002Token) +
       ', GOOGLE_CLIENT_ID=' + yesno(s.secrets.googleClientId) +
-      ', GOOGLE_CLIENT_SECRET=' + yesno(s.secrets.googleClientSecret), 'ok');
+      ', GOOGLE_CLIENT_SECRET=' + yesno(s.secrets.googleClientSecret) +
+      ', ALLOWED_EMAIL=' + yesno(s.secrets.allowedEmail), 'ok');
     var b = el('gcalBadge');
-    b.textContent = s.googleConnected ? 'connected' : 'not connected';
+    b.style.display = 'inline-block';
+    b.textContent = s.googleConnected ? 'calendar connected' : 'calendar not connected';
     b.className = 'badge ' + (s.googleConnected ? 'on' : 'off');
     FIELDS.forEach(function (k) {
       var v = s.config[k];
@@ -177,15 +191,14 @@ function loadState() {
     say('lastRun', describeLastRun(s.lastRun), s.lastRun && !s.lastRun.ok ? 'error' : '');
     if (s.hasLastGif) refreshPreview();
   }).catch(function (e) {
-    el('app').style.display = 'none';
-    say('connStatus', e.message, 'error');
+    if (e.message !== 'not signed in') say('acctStatus', e.message, 'error');
   });
 }
 
 function yesno(v) { return v ? 'yes' : 'NO'; }
 
 function refreshPreview() {
-  fetch('/api/last.gif', { headers: { Authorization: 'Bearer ' + token } })
+  fetch('/api/last.gif')
     .then(function (r) { if (!r.ok) throw new Error('no preview'); return r.blob(); })
     .then(function (blob) {
       el('preview').src = URL.createObjectURL(blob);
@@ -194,10 +207,15 @@ function refreshPreview() {
     .catch(function () {});
 }
 
-el('saveToken').onclick = function () {
-  token = el('token').value.trim();
-  localStorage.setItem('adminToken', token);
-  loadState();
+el('logout').onclick = function () {
+  api('/auth/logout', { method: 'POST' }).then(function () { location.reload(); });
+};
+
+el('gcalDisconnect').onclick = function () {
+  say('gcalStatus', 'Disconnecting...', '');
+  api('/auth/google/disconnect', { method: 'POST' })
+    .then(function () { say('gcalStatus', 'Disconnected. Sign in again to restore calendar access.', 'ok'); loadState(); })
+    .catch(function (e) { say('gcalStatus', e.message, 'error'); });
 };
 
 el('saveConfig').onclick = function () {
@@ -224,24 +242,10 @@ el('generate').onclick = function () {
     .finally(function () { btn.disabled = false; });
 };
 
-el('gcalConnect').onclick = function () {
-  say('gcalStatus', 'Building Google consent URL...', '');
-  api('/auth/google', { method: 'POST' })
-    .then(function (r) { window.location.href = r.url; })
-    .catch(function (e) { say('gcalStatus', e.message, 'error'); });
-};
-
-el('gcalDisconnect').onclick = function () {
-  api('/auth/google/disconnect', { method: 'POST' })
-    .then(function () { say('gcalStatus', 'Disconnected.', 'ok'); loadState(); })
-    .catch(function (e) { say('gcalStatus', e.message, 'error'); });
-};
-
-el('token').value = token;
-if (token) loadState();
 if (new URLSearchParams(location.search).get('auth') === 'ok') {
   history.replaceState(null, '', location.pathname);
 }
+loadState();
 </script>
 </body>
 </html>`;
