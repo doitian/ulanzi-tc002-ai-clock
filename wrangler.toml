@@ -1,0 +1,27 @@
+name = "tc002-pixel-clock"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Fires every 10 minutes. Each wake checks the agenda calendars: a newly active
+# event triggers an image (same event is never re-sent); with no active event a
+# random-topic image is sent, throttled to at most once per hour (see src/pipeline.ts).
+[triggers]
+crons = ["*/10 * * * *"]
+
+# Create with: wrangler kv namespace create KV
+# then paste the returned id below.
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+# Base URL of the Ulanzi TC002 on your LAN (can be overridden in the Web UI).
+TC002_BASE = "http://192.168.1.100"
+# OAuth client id from Google Cloud Console (Calendar API).
+GOOGLE_CLIENT_ID = ""
+
+# Secrets (set with: wrangler secret put <NAME>):
+#   OPENAI_API_KEY        - key for the OpenAI-compatible chat provider
+#   TC002_TOKEN           - bearer token for the TC002 API
+#   GOOGLE_CLIENT_SECRET  - OAuth client secret
+#   ADMIN_TOKEN           - bearer token required by the Web UI / API
