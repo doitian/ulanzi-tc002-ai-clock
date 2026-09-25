@@ -24,7 +24,7 @@ export async function pickTheme(env: Env, cfg: Config): Promise<Theme> {
       // calendar problems must not break theme selection
     }
   }
-  return pickRandomTopic(cfg, token, now);
+  return pickRandomTopic(env, cfg, token, now);
 }
 
 export async function findActiveEventTheme(
@@ -40,16 +40,22 @@ export async function findActiveEventTheme(
   return { theme, key };
 }
 
-export async function pickRandomTopic(cfg: Config, token: string | null, now: Date): Promise<Theme> {
-  const sources: (() => Promise<Theme | null>)[] = [];
-  if (token && cfg.holidayCalendars.length > 0) sources.push(() => holidayTheme(token, cfg, now));
-  sources.push(() => Promise.resolve(moodTheme(cfg, now)));
-  sources.push(() => newsTheme());
-  sources.push(() => weatherTheme(cfg));
+export async function pickRandomTopic(env: Env, cfg: Config, token: string | null, now: Date): Promise<Theme> {
+  const sources: { kind: Theme['kind']; pick: () => Promise<Theme | null> }[] = [];
+  const holidayShownToday = (await env.KV.get('last_holiday_date')) === localDate(now, cfg.timezone);
+  if (token && cfg.holidayCalendars.length > 0 && !holidayShownToday) {
+    sources.push({ kind: 'holiday', pick: () => holidayTheme(token, cfg, now) });
+  }
+  sources.push({ kind: 'mood', pick: () => Promise.resolve(moodTheme(cfg, now)) });
+  sources.push({ kind: 'news', pick: newsTheme });
+  if (cfg.weatherLocation.trim()) sources.push({ kind: 'weather', pick: () => weatherTheme(cfg) });
 
-  for (const source of shuffle(sources)) {
+  const lastKind = await env.KV.get('last_topic_kind');
+  const choices = shuffle(sources.filter((s) => s.kind !== lastKind))
+    .concat(sources.filter((s) => s.kind === lastKind));
+  for (const source of choices) {
     try {
-      const theme = await source();
+      const theme = await source.pick();
       if (theme) return theme;
     } catch {
       // try the next source
@@ -69,7 +75,7 @@ async function findActiveEvent(token: string, cfg: Config, now: Date): Promise<R
   );
   const isExcluded = exclusionMatcher(cfg.eventExclusionPattern);
   const nowMs = now.getTime();
-  const today = dateStrInTz(now, cfg.timezone);
+  const today = localDate(now, cfg.timezone);
 
   const active = events.filter((ev) => {
     if (isExcluded(ev.title)) return false;
@@ -108,7 +114,7 @@ async function holidayTheme(token: string, cfg: Config, now: Date): Promise<Them
     new Date(now.getTime() - 3 * 86400_000),
     new Date(now.getTime() + 3 * 86400_000),
   );
-  const today = dateStrInTz(now, cfg.timezone);
+  const today = localDate(now, cfg.timezone);
   const hits = events.filter((ev) => ev.allDay && ev.date && ev.endDate && ev.date <= today && today < ev.endDate);
   if (hits.length === 0) return null;
   const ev = hits[Math.floor(Math.random() * hits.length)];
@@ -203,7 +209,7 @@ function formatHHMM(d: Date, tz: string): string {
   }).format(d);
 }
 
-function dateStrInTz(d: Date, tz: string): string {
+export function localDate(d: Date, tz: string): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: tz,
     year: 'numeric',

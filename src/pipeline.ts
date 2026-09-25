@@ -2,7 +2,7 @@ import { getCalendarToken } from './calendar';
 import { getConfig } from './config';
 import { generatePixelArt } from './pixelart';
 import { sendToTc002 } from './tc002';
-import { findActiveEventTheme, pickRandomTopic, pickTheme, type Theme } from './topics';
+import { findActiveEventTheme, localDate, pickRandomTopic, pickTheme, type Theme } from './topics';
 import type { Config, Env, ProgressFn } from './types';
 
 const TOPIC_THROTTLE_MS = 60 * 60_000; // at most one random-topic image per hour
@@ -61,7 +61,7 @@ export async function runScheduled(env: Env): Promise<string> {
     await recordRun(env, { ok: true, skipped: 'topic throttled (max 1/hour)' });
     return 'skipped-topic-throttled';
   }
-  const theme = await pickRandomTopic(cfg, token, now);
+  const theme = await pickRandomTopic(env, cfg, token, now);
   await generateSendRecord(env, cfg, theme);
   await env.KV.put('last_topic_at', String(now.getTime()));
   return 'sent-topic';
@@ -78,6 +78,12 @@ async function generateSendRecord(
     onProgress?.({ step: 'gif', detail: `encoded ${art.frames} frame(s), 52x16` });
     onProgress?.({ step: 'tc002', detail: 'sending to TC002...' });
     await sendToTc002(env, cfg, art.gifBase64);
+    if (theme.kind !== 'calendar-event' && theme.kind !== 'custom') {
+      await env.KV.put('last_topic_kind', theme.kind);
+      if (theme.kind === 'holiday') {
+        await env.KV.put('last_holiday_date', localDate(new Date(), cfg.timezone));
+      }
+    }
     await env.KV.put('last_gif', art.gifBase64);
     await recordRun(env, {
       ok: true,

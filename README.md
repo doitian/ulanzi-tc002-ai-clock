@@ -14,15 +14,17 @@ The worker wakes **every 10 minutes, 07:00–23:59 UTC+0800** (fixed cron trigge
    text. The event's identity (`calendar|id`) is stored in KV (`last_event_key`) — **the same
    event is never re-sent**.
 2. **Otherwise, a random topic**, throttled to **at most one image per hour** (tracked via the
-   `last_topic_at` KV key). Sources, chosen at random:
+   `last_topic_at` KV key). The same topic category is avoided on consecutive sends when
+   alternatives work; a holiday is used at most once per local day. Sources:
    - today's all-day events from the configured holiday calendar(s)
    - a mood fitting the current time of day
    - the top BBC World News headline
    - current weather at the configured location (Open-Meteo, no key needed)
-3. **Generate.** The chat model returns palette-indexed rows for a 52×16 matrix (index 0 =
-   `#000000` = LED off, 1–8 GIF frames when motion helps). The worker validates the grid and
-   encodes a GIF in pure JS (`gifenc`) — no image API needed. Chat completions stream live
-   progress, including thinking activity when the provider emits `reasoning_content`.
+3. **Generate.** The chat model describes shapes and small sprites across a 52×16 scene.
+   The worker renders them with `#000000` as the unlit background, checks horizontal and
+   vertical coverage, draws event times with a fixed pixel font, then encodes 1–6 frames as
+   a GIF in pure JS (`gifenc`). Chat completions stream live progress, including thinking
+   activity when the provider emits `reasoning_content`.
    For `qwen3.8-max`, set **Thinking** to **off** in the Web UI: the default thinking mode
    can run for many minutes and lead to HTTP 524 timeouts.
 4. **Send.** The GIF is POSTed as a data URL to `<tc002-base-url>/api/apps/random`.

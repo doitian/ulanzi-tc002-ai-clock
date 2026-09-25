@@ -1,40 +1,32 @@
 import { GIFEncoder } from 'gifenc';
+import { MATRIX_H, MATRIX_W, renderScene, type RenderedScene } from './scene';
 import type { Theme } from './topics';
 import type { Config, Env, ProgressFn } from './types';
-
-export const MATRIX_W = 52;
-export const MATRIX_H = 16;
-const MAX_COLORS = 16;
-const MAX_FRAMES = 8;
-
-interface Art {
-  palette: string[];
-  frames: number[][][]; // [frame][row][x] = palette index
-  delayMs: number;
-}
 
 export interface GeneratedArt {
   gifBase64: string;
   frames: number;
 }
 
-const SYSTEM_PROMPT = `You are a pixel artist designing animations for a ${MATRIX_W}x${MATRIX_H} LED matrix display (width ${MATRIX_W}, height ${MATRIX_H}) on an Ulanzi TC002 clock.
+const SYSTEM_PROMPT = `Design pixel art for a 52x16 LED matrix. Output ONLY a JSON object describing a scene; the application renders it, so do NOT output a 52x16 grid.
 
-Reply with STRICT JSON ONLY (no markdown fences, no commentary) in this exact shape:
+Schema:
 {
-  "palette": ["#000000", "#RRGGBB", "..."],
-  "delayMs": 400,
-  "frames": [["<row0>", "<row1>", "...", "<row15>"]]
+  "palette": ["#000000", "#F5B93D", "#35C5E8", "#FFFFFF"],
+  "base": [
+    {"kind":"rect","x":0,"y":14,"w":52,"h":2,"color":2},
+    {"kind":"ellipse","x":19,"y":2,"w":14,"h":12,"color":1},
+    {"kind":"line","x":2,"y":10,"x2":12,"y2":5,"color":3},
+    {"kind":"sprite","x":43,"y":2,"rows":["01110","12221","01110"]}
+  ],
+  "frames": [[]],
+  "delayMs": 400
 }
+This is a schema example, NOT a scene to copy. Create recognizable pixel art fitting the requested subject.
 
-Rules:
-- "palette": 2 to ${MAX_COLORS} hex colors. Index 0 MUST be "#000000" (black = LED off).
-- "frames": 1 to ${MAX_FRAMES} frames. Each frame is exactly ${MATRIX_H} strings; each string is exactly ${MATRIX_W} characters; every character is a hex digit (0-9a-f) giving the palette index of that pixel. Row 0 is the TOP row.
-- The background MUST be palette index 0. Keep large areas black so the display looks clean.
-- Use bold, simple shapes with high contrast; fine detail is unreadable at this size.
-- Any text must use a chunky 3x5-style pixel font, be clearly legible, and be pixel-identical in every frame (text NEVER animates, scrolls, or moves).
-- Use more than 1 frame only when a simple looping motion genuinely improves the art (falling rain, blinking stars, waves). Otherwise return exactly 1 frame.
-- "delayMs": 200-800 for animations; use 400 for a single frame.`;
+Canvas coordinates: x=0..51 left to right; y=0..15 top to bottom. Colors are zero-based palette indexes, where palette[0] MUST be #000000 (LED off). Use 3-10 vivid, contrasting colors. Every shape MUST use the "kind" key (rect, ellipse, line, sprite), with the fields shown above. Rect and ellipse may set "fill":false to draw an outline. Sprite rows use single hexadecimal palette-index characters; 0 in a sprite is transparent. Put static shapes in "base" (up to 60). Each frame is a list of animated overlay shapes (up to 30); use "frames":[[]] for a still image or 2-6 frames for simple motion. Shapes draw in listed order.
+
+The canvas is BLACK by default; do NOT paint a sky, background, or filled 52x16 rectangle! No large filled rectangles covering more than 100 pixels. Make a coherent full-width scene, not a small icon in a corner. Give the main subject a bold silhouette with foreground and small atmospheric details on BOTH edges. Span at least 40 columns and 9 rows with 75-420 lit pixels total; most LEDs MUST remain off. Use 8-25 thoughtful shapes/sprites rather than hundreds of tiny dots. A single line across the width alone is not sufficient. No written text: the application draws calendar time itself.`;
 
 export async function generatePixelArt(
   env: Env,
@@ -50,31 +42,28 @@ export async function generatePixelArt(
   ];
 
   let lastError = 'no response';
-  for (let attempt = 0; attempt < 2; attempt++) {
-    onProgress?.({ step: 'llm', detail: `requesting art from ${cfg.openaiModel} (attempt ${attempt + 1}/2)` });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    onProgress?.({ step: 'llm', detail: `designing scene with ${cfg.openaiModel} (attempt ${attempt + 1}/3)` });
     const content = await chatCompletion(env, cfg, messages, onProgress);
     try {
-      const art = normalizeArt(extractJson(content));
+      const art = renderScene(extractJson(content), theme.timeLabel);
+      onProgress?.({ step: 'scene', detail: `rendered ${art.frames.length} full-canvas frame(s)` });
       return { gifBase64: encodeGif(art), frames: art.frames.length };
     } catch (e) {
-      lastError = (e as Error).message;
-      onProgress?.({ step: 'llm', detail: `invalid reply: ${lastError}` });
+      lastError = e instanceof Error ? e.message : String(e);
+      onProgress?.({ step: 'scene', detail: `revising scene: ${lastError}` });
       messages.push({ role: 'assistant', content });
-      messages.push({
-        role: 'user',
-        content: `That reply was invalid: ${lastError}. Reply with corrected JSON only, no markdown, no commentary.`,
-      });
+      messages.push({ role: 'user', content: `Your scene did not render well: ${lastError}. Return a NEW complete JSON scene that fixes this issue. Use "kind" for each shape. The unlit canvas is already black: NEVER draw a large filled background or sky. Spread the subject and small details across the drawing area. JSON only.` });
     }
   }
   throw new Error(`pixel art generation failed: ${lastError}`);
 }
 
 function userPrompt(theme: Theme): string {
-  let p = `Create the pixel art now.\nSubject: ${theme.text}`;
   if (theme.timeLabel) {
-    p += `\nThe subject is a calendar event starting at ${theme.timeLabel} (24-hour time). Render "${theme.timeLabel}" as large, clearly readable pixel text that is static (identical) in every frame.`;
+    return `Illustrate ${theme.text} in the LEFT 31 columns (x=0..30) of the 52x16 canvas. Cover at least 23 columns in that area with a bold subject and supporting details. Leave x=31..51 empty; the application overlays the static 24-hour event time ${theme.timeLabel} there. Do not draw text.`;
   }
-  return p;
+  return `Illustrate ${theme.text}. Use the WHOLE 52x16 canvas: compelling subject near center, balanced details on both left and right edges, foreground and background. Do not draw text.`;
 }
 
 async function chatCompletion(
@@ -95,7 +84,6 @@ async function chatCompletion(
       messages,
       temperature: 0.7,
       stream: true,
-      // DashScope-specific; omitted by default so other providers don't reject it.
       ...(cfg.openaiThinking === 'on' ? { enable_thinking: true } : {}),
       ...(cfg.openaiThinking === 'off' ? { enable_thinking: false } : {}),
     }),
@@ -128,7 +116,7 @@ async function chatCompletion(
           }).choices?.[0]?.delta;
           if (delta?.reasoning_content) reasoning += delta.reasoning_content.length;
           if (delta?.content) {
-            if (!content) onProgress?.({ step: 'llm', detail: 'receiving answer...' });
+            if (!content) onProgress?.({ step: 'llm', detail: 'receiving scene...' });
             content += delta.content;
           }
         } catch {}
@@ -138,7 +126,7 @@ async function chatCompletion(
       reportedReasoning = reasoning;
       onProgress?.({ step: 'think', detail: `thinking... ${reasoning} chars` });
     }
-    if (content.length - reportedContent >= 2000) {
+    if (content.length - reportedContent >= 1000) {
       reportedContent = content.length;
       onProgress?.({ step: 'llm', detail: `streaming... ${content.length} chars received` });
     }
@@ -156,46 +144,6 @@ function extractJson(text: string): unknown {
   return JSON.parse(raw.slice(start, end + 1));
 }
 
-function normalizeArt(raw: unknown): Art {
-  if (!raw || typeof raw !== 'object') throw new Error('reply is not a JSON object');
-  const obj = raw as Record<string, unknown>;
-
-  if (!Array.isArray(obj.palette) || obj.palette.length < 2) {
-    throw new Error('palette must be an array of at least 2 colors');
-  }
-  const palette = obj.palette.slice(0, MAX_COLORS).map(normalizeColor);
-  palette[0] = '#000000';
-
-  if (!Array.isArray(obj.frames) || obj.frames.length === 0) {
-    throw new Error('frames must be a non-empty array');
-  }
-  const frames = obj.frames.slice(0, MAX_FRAMES).map((f, i) => normalizeFrame(f, palette.length, i));
-
-  const delayMs = Math.min(2000, Math.max(100, Number(obj.delayMs) || 400));
-  return { palette, frames, delayMs };
-}
-
-function normalizeColor(c: unknown): string {
-  if (typeof c !== 'string') return '#000000';
-  const m = c.trim().match(/^#?([0-9a-fA-F]{6})$/);
-  return m ? `#${m[1].toLowerCase()}` : '#000000';
-}
-
-function normalizeFrame(f: unknown, paletteSize: number, fi: number): number[][] {
-  if (!Array.isArray(f)) throw new Error(`frame ${fi} is not an array of rows`);
-  const rows: number[][] = [];
-  for (let y = 0; y < MATRIX_H; y++) {
-    const rawRow = typeof f[y] === 'string' ? (f[y] as string) : '';
-    const row: number[] = [];
-    for (let x = 0; x < MATRIX_W; x++) {
-      const v = parseInt(rawRow[x] ?? '0', 16);
-      row.push(Number.isNaN(v) || v >= paletteSize ? 0 : v);
-    }
-    rows.push(row);
-  }
-  return rows;
-}
-
 function hexToRgb(hex: string): number[] {
   return [
     parseInt(hex.slice(1, 3), 16),
@@ -204,16 +152,12 @@ function hexToRgb(hex: string): number[] {
   ];
 }
 
-function encodeGif(art: Art): string {
+function encodeGif(art: RenderedScene): string {
   const gif = GIFEncoder();
-  const paletteRgb = art.palette.map(hexToRgb);
+  const palette = art.palette.map(hexToRgb);
   for (const frame of art.frames) {
-    const indices = new Uint8Array(MATRIX_W * MATRIX_H);
-    for (let y = 0; y < MATRIX_H; y++) {
-      for (let x = 0; x < MATRIX_W; x++) indices[y * MATRIX_W + x] = frame[y][x];
-    }
-    gif.writeFrame(indices, MATRIX_W, MATRIX_H, {
-      palette: paletteRgb,
+    gif.writeFrame(frame, MATRIX_W, MATRIX_H, {
+      palette,
       delay: art.delayMs,
       repeat: 0,
       dispose: -1,

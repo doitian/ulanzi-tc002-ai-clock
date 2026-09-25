@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "types": "tsc --noEmit"
+    "types": "tsc --noEmit",
+    "test": "node --import ./tests/resolve-ts.mjs --test tests/*.test.mjs"
   },
   "dependencies": {
     "gifenc": "^1.0.3"
