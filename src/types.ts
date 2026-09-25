@@ -17,5 +17,6 @@ export interface Env {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   ALLOWED_EMAIL?: string;
-  TC002_BASE?: string;
 }
+
+export type ProgressFn = (event: { step: string; detail?: string }) => void;

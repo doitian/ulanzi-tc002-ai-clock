@@ -6,7 +6,7 @@ import type { Config, Env } from './types';
 import { renderUi } from './ui';
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
     const origin = url.origin;
@@ -51,7 +51,7 @@ export default {
     try {
       if (path === '/api/state' && request.method === 'GET') return await handleState(env, email);
       if (path === '/api/config' && request.method === 'POST') return await handleSaveConfig(request, env);
-      if (path === '/api/generate' && request.method === 'POST') return await handleGenerate(request, env);
+      if (path === '/api/generate' && request.method === 'POST') return await handleGenerate(request, env, ctx);
       if (path === '/api/last.gif' && request.method === 'GET') return await handleLastGif(env);
       if (path === '/auth/logout' && request.method === 'POST') {
         await destroySession(request, env);
@@ -87,7 +87,7 @@ async function handleState(env: Env, email: string): Promise<Response> {
       googleClientSecret: !!env.GOOGLE_CLIENT_SECRET,
       allowedEmail: !!env.ALLOWED_EMAIL,
     },
-    tc002BaseEffective: config.tc002BaseUrl || env.TC002_BASE || '',
+    tc002BaseConfigured: config.tc002BaseUrl !== '',
     googleConnected: await isGoogleConnected(env),
     lastRun: await env.KV.get('last_run', 'json'),
     hasLastGif: (await env.KV.get('last_gif')) !== null,
@@ -101,10 +101,32 @@ async function handleSaveConfig(request: Request, env: Env): Promise<Response> {
   return json({ ok: true, config });
 }
 
-async function handleGenerate(request: Request, env: Env): Promise<Response> {
+// Streams server-sent events: progress lines, then a final done/error event.
+async function handleGenerate(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as { prompt?: string };
-  const result = await runManual(env, body.prompt);
-  return json({ ok: true, ...result });
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+  const send = (event: Record<string, unknown>) =>
+    writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)).catch(() => {});
+
+  ctx.waitUntil(
+    (async () => {
+      try {
+        const result = await runManual(env, body.prompt, (e) => {
+          void send({ type: 'progress', ...e });
+        });
+        await send({ type: 'done', ...result });
+      } catch (e) {
+        await send({ type: 'error', error: message(e) });
+      } finally {
+        await writer.close().catch(() => {});
+      }
+    })(),
+  );
+  return new Response(readable, {
+    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+  });
 }
 
 async function handleLastGif(env: Env): Promise<Response> {

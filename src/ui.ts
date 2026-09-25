@@ -98,7 +98,7 @@ export function renderUi(): string {
     <input type="text" id="f_exclude" placeholder="Focus Time">
   </div>
   <div>
-    <label for="f_tc002">TC002 base URL (overrides TC002_BASE var)</label>
+    <label for="f_tc002">TC002 base URL</label>
     <input type="text" id="f_tc002" placeholder="http://192.168.1.100">
   </div>
 </div>
@@ -228,18 +228,62 @@ el('saveConfig').onclick = function () {
     .catch(function (e) { say('cfgStatus', e.message, 'error'); });
 };
 
+var genLog = [];
+function logLine(text, cls) {
+  genLog.push(text);
+  say('genStatus', genLog.join('\n'), cls || '');
+}
+
+function handleGenEvent(evt) {
+  if (evt.type === 'progress') {
+    logLine('[' + evt.step + '] ' + (evt.detail || ''));
+  } else if (evt.type === 'done') {
+    logLine('[done] sent to TC002 - theme: ' + evt.theme.text +
+      ' (' + evt.theme.kind + ', ' + evt.frames + ' frame(s))', 'ok');
+    refreshPreview();
+    api('/api/state').then(function (s) { say('lastRun', describeLastRun(s.lastRun), ''); });
+  } else if (evt.type === 'error') {
+    logLine('[error] ' + evt.error, 'error');
+  }
+}
+
 el('generate').onclick = function () {
   var btn = el('generate');
   btn.disabled = true;
-  say('genStatus', 'Generating pixel art and sending to TC002...', '');
-  api('/api/generate', { method: 'POST', body: { prompt: el('prompt').value } })
-    .then(function (r) {
-      say('genStatus', 'Sent. Theme: ' + r.theme.text + ' (' + r.theme.kind + ', ' + r.frames + ' frame(s))', 'ok');
-      refreshPreview();
-      api('/api/state').then(function (s) { say('lastRun', describeLastRun(s.lastRun), ''); });
-    })
-    .catch(function (e) { say('genStatus', e.message, 'error'); })
-    .finally(function () { btn.disabled = false; });
+  genLog = [];
+  logLine('Starting generation...');
+  fetch('/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: el('prompt').value }),
+  }).then(function (res) {
+    if (res.status === 401) { showLoggedOut(); throw new Error('not signed in'); }
+    if (!res.ok || !res.body) {
+      return res.text().then(function (t) { throw new Error(t || ('HTTP ' + res.status)); });
+    }
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buf = '';
+    function pump() {
+      return reader.read().then(function (r) {
+        if (r.done) return;
+        buf += decoder.decode(r.value, { stream: true });
+        var idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          var raw = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          raw.split('\n').forEach(function (line) {
+            if (line.indexOf('data:') !== 0) return;
+            try { handleGenEvent(JSON.parse(line.slice(5))); } catch (e) {}
+          });
+        }
+        return pump();
+      });
+    }
+    return pump();
+  }).catch(function (e) {
+    if (e.message !== 'not signed in') logLine('[error] ' + e.message, 'error');
+  }).finally(function () { btn.disabled = false; });
 };
 
 if (new URLSearchParams(location.search).get('auth') === 'ok') {

@@ -21,8 +21,10 @@ The worker wakes **every 10 minutes, 07:00–23:59 UTC+0800** (fixed cron trigge
    - current weather at the configured location (Open-Meteo, no key needed)
 3. **Generate.** The chat model returns palette-indexed rows for a 52×16 matrix (index 0 =
    `#000000` = LED off, 1–8 GIF frames when motion helps). The worker validates the grid and
-   encodes a GIF in pure JS (`gifenc`) — no image API needed.
-4. **Send.** The GIF is POSTed as a data URL to `$TC002_BASE/api/apps/random`.
+   encodes a GIF in pure JS (`gifenc`) — no image API needed. Chat completions are streamed,
+   which reasoning models (e.g. QwQ, DeepSeek-R1 on DashScope compatible-mode) require and
+   which avoids gateway timeouts (HTTP 524) on slow models.
+4. **Send.** The GIF is POSTed as a data URL to `<tc002-base-url>/api/apps/random`.
 
 Manual generation from the Web UI bypasses the dedupe and throttle.
 
@@ -36,10 +38,9 @@ namespace (and its data) is reused.
 1. **Connect the repo**: Cloudflare dashboard → Workers → *Create* → *Import a repository* →
    pick this repo. No build command is needed (wrangler bundles `src/index.ts` directly).
    The KV namespace is created automatically on the first deploy.
-2. **Variables and secrets** (Settings → Variables and Secrets):
-   - Variables: `TC002_BASE` (e.g. `http://192.168.1.100`), `GOOGLE_CLIENT_ID`
-   - Secrets: `OPENAI_API_KEY`, `TC002_TOKEN`, `GOOGLE_CLIENT_SECRET`,
-     `ALLOWED_EMAIL` (the only Google account allowed to sign in)
+2. **Secrets** (Settings → Variables and Secrets): `OPENAI_API_KEY`, `TC002_TOKEN`,
+   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAIL` (the only Google account
+   allowed to sign in). The TC002 base URL is configured later in the Web UI.
 3. **Google OAuth** (sign-in + Calendar API)
    - Google Cloud Console → create an OAuth client (type: *Web application*).
    - Enable the **Google Calendar API**.
@@ -54,8 +55,8 @@ namespace (and its data) is reused.
    - All agenda/holiday calendars you configure must be visible in the *connected* account's
      calendar list (share/subscribe them there). Calendars are matched by id or name.
 4. Open `https://<your-worker>.workers.dev`, sign in with Google, then fill in
-   the configuration (agenda/holiday calendars, weather location, ...) and press
-   **Generate & Send** to test.
+   the configuration (TC002 base URL, agenda/holiday calendars, weather location, ...) and press
+   **Generate & Send** to test. Generation progress is streamed live to the page.
 
 ## Web UI / API
 
@@ -72,14 +73,15 @@ and `/auth/google/callback` requires that session.
 | `POST /auth/google/disconnect` | delete stored Google tokens (stops calendar features) |
 | `GET /api/state` | user, config, secret presence, Google status, last run |
 | `POST /api/config` | update configuration (partial JSON merge) |
-| `POST /api/generate` | `{ "prompt": "..." }` — empty prompt = automatic topic |
+| `POST /api/generate` | `{ "prompt": "..." }` — empty prompt = automatic topic; streams progress as SSE |
 | `GET /api/last.gif` | last generated GIF |
 
 ### Configurable via UI
 
 OpenAI endpoint & model, timezone, agenda calendars, holiday calendars, skip-all-day toggle,
 event exclusion pattern (regex or substring), weather location, TC002 base URL.
-Tokens (`OPENAI_API_KEY`, `TC002_TOKEN`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAIL`) stay secrets.
+All credentials (`OPENAI_API_KEY`, `TC002_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`ALLOWED_EMAIL`) stay secrets.
 
 ## Local development
 

@@ -3,7 +3,7 @@ import { getConfig } from './config';
 import { generatePixelArt } from './pixelart';
 import { sendToTc002 } from './tc002';
 import { findActiveEventTheme, pickRandomTopic, pickTheme, type Theme } from './topics';
-import type { Config, Env } from './types';
+import type { Config, Env, ProgressFn } from './types';
 
 const TOPIC_THROTTLE_MS = 60 * 60_000; // at most one random-topic image per hour
 
@@ -14,12 +14,14 @@ export interface RunResult {
 
 // Explicit generation from the Web UI: always generates and sends,
 // bypassing event dedupe and the topic throttle.
-export async function runManual(env: Env, prompt?: string): Promise<RunResult> {
+export async function runManual(env: Env, prompt?: string, onProgress?: ProgressFn): Promise<RunResult> {
   const cfg = await getConfig(env);
+  onProgress?.({ step: 'theme', detail: 'picking theme...' });
   const theme = prompt?.trim()
     ? { kind: 'custom' as const, text: prompt.trim() }
     : await pickTheme(env, cfg);
-  return generateSendRecord(env, cfg, theme);
+  onProgress?.({ step: 'theme', detail: `${theme.kind}: ${theme.text}` });
+  return generateSendRecord(env, cfg, theme, onProgress);
 }
 
 // Cron wake (every 10 min): send an image for a newly active agenda event;
@@ -65,9 +67,16 @@ export async function runScheduled(env: Env): Promise<string> {
   return 'sent-topic';
 }
 
-async function generateSendRecord(env: Env, cfg: Config, theme: Theme): Promise<RunResult> {
+async function generateSendRecord(
+  env: Env,
+  cfg: Config,
+  theme: Theme,
+  onProgress?: ProgressFn,
+): Promise<RunResult> {
   try {
-    const art = await generatePixelArt(env, cfg, theme);
+    const art = await generatePixelArt(env, cfg, theme, onProgress);
+    onProgress?.({ step: 'gif', detail: `encoded ${art.frames} frame(s), 52x16` });
+    onProgress?.({ step: 'tc002', detail: 'sending to TC002...' });
     await sendToTc002(env, cfg, art.gifBase64);
     await env.KV.put('last_gif', art.gifBase64);
     await recordRun(env, {

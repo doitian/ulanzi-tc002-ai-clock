@@ -20,5 +20,6 @@ binding = "KV"
 # Deployment is automated via the Cloudflare GitHub App (Workers Builds);
 # set them in the dashboard (Settings -> Variables and Secrets):
 #
-#   Variables: TC002_BASE, GOOGLE_CLIENT_ID
-#   Secrets:   OPENAI_API_KEY, TC002_TOKEN, GOOGLE_CLIENT_SECRET, ALLOWED_EMAIL
+#   Secrets: OPENAI_API_KEY, TC002_TOKEN, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ALLOWED_EMAIL
+#
+# (The TC002 base URL is configured in the Web UI and stored in KV.)

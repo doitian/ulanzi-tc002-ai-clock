@@ -1,6 +1,6 @@
 import { GIFEncoder } from 'gifenc';
 import type { Theme } from './topics';
-import type { Config, Env } from './types';
+import type { Config, Env, ProgressFn } from './types';
 
 export const MATRIX_W = 52;
 export const MATRIX_H = 16;
@@ -36,7 +36,12 @@ Rules:
 - Use more than 1 frame only when a simple looping motion genuinely improves the art (falling rain, blinking stars, waves). Otherwise return exactly 1 frame.
 - "delayMs": 200-800 for animations; use 400 for a single frame.`;
 
-export async function generatePixelArt(env: Env, cfg: Config, theme: Theme): Promise<GeneratedArt> {
+export async function generatePixelArt(
+  env: Env,
+  cfg: Config,
+  theme: Theme,
+  onProgress?: ProgressFn,
+): Promise<GeneratedArt> {
   if (!env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY secret is not set');
 
   const messages: { role: string; content: string }[] = [
@@ -46,12 +51,14 @@ export async function generatePixelArt(env: Env, cfg: Config, theme: Theme): Pro
 
   let lastError = 'no response';
   for (let attempt = 0; attempt < 2; attempt++) {
-    const content = await chatCompletion(env, cfg, messages);
+    onProgress?.({ step: 'llm', detail: `requesting art from ${cfg.openaiModel} (attempt ${attempt + 1}/2)` });
+    const content = await chatCompletion(env, cfg, messages, onProgress);
     try {
       const art = normalizeArt(extractJson(content));
       return { gifBase64: encodeGif(art), frames: art.frames.length };
     } catch (e) {
       lastError = (e as Error).message;
+      onProgress?.({ step: 'llm', detail: `invalid reply: ${lastError}` });
       messages.push({ role: 'assistant', content });
       messages.push({
         role: 'user',
@@ -70,10 +77,14 @@ function userPrompt(theme: Theme): string {
   return p;
 }
 
+// Streams the chat completion (required by reasoning models on OpenAI-compatible
+// providers such as DashScope compatible-mode, and avoids gateway timeouts like
+// HTTP 524 on slow models).
 async function chatCompletion(
   env: Env,
   cfg: Config,
   messages: { role: string; content: string }[],
+  onProgress?: ProgressFn,
 ): Promise<string> {
   const base = cfg.openaiBaseUrl.replace(/\/+$/, '');
   const res = await fetch(`${base}/chat/completions`, {
@@ -82,11 +93,42 @@ async function chatCompletion(
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ model: cfg.openaiModel, messages, temperature: 0.7 }),
+    body: JSON.stringify({ model: cfg.openaiModel, messages, temperature: 0.7, stream: true }),
   });
   if (!res.ok) throw new Error(`LLM API error ${res.status}: ${(await res.text()).slice(0, 500)}`);
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  const content = data.choices?.[0]?.message?.content;
+  if (!res.body) throw new Error('LLM API returned no body');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let content = '';
+  let reported = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buffer.indexOf('\n\n')) >= 0) {
+      const rawEvent = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      for (const line of rawEvent.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        try {
+          const delta = (JSON.parse(data) as { choices?: { delta?: { content?: string } }[] })
+            .choices?.[0]?.delta?.content;
+          if (delta) content += delta;
+        } catch {
+          // incomplete JSON fragment - ignore
+        }
+      }
+    }
+    if (content.length - reported >= 2000) {
+      reported = content.length;
+      onProgress?.({ step: 'llm', detail: `streaming... ${content.length} chars received` });
+    }
+  }
   if (!content) throw new Error('LLM returned an empty response');
   return content;
 }
