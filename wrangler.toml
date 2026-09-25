@@ -10,10 +10,15 @@ compatibility_date = "2025-01-01"
 [triggers]
 crons = ["*/10 23,0-15 * * *"]
 
-# Bindings and variables are intentionally NOT declared in this repo.
+# The KV namespace is auto-provisioned on first deploy (binding without an id):
+# Wrangler creates "tc002-pixel-clock-kv" and binds it; later deploys inherit the
+# binding from the currently deployed version, so the same namespace is reused.
+[[kv_namespaces]]
+binding = "KV"
+
+# Variables and secrets are intentionally NOT declared in this repo.
 # Deployment is automated via the Cloudflare GitHub App (Workers Builds);
-# create/attach them in the dashboard (Settings -> Bindings / Variables and Secrets):
+# set them in the dashboard (Settings -> Variables and Secrets):
 #
-#   KV namespace binding: KV
-#   Variables:            TC002_BASE, GOOGLE_CLIENT_ID
-#   Secrets:              OPENAI_API_KEY, TC002_TOKEN, GOOGLE_CLIENT_SECRET, ALLOWED_EMAIL
+#   Variables: TC002_BASE, GOOGLE_CLIENT_ID
+#   Secrets:   OPENAI_API_KEY, TC002_TOKEN, GOOGLE_CLIENT_SECRET, ALLOWED_EMAIL

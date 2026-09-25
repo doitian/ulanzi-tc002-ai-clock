@@ -28,18 +28,19 @@ Manual generation from the Web UI bypasses the dedupe and throttle.
 
 ## Setup
 
-Deployment is automated with the Cloudflare GitHub App (Workers Builds); `wrangler.toml`
-contains no bindings or variables.
+Deployment is automated with the Cloudflare GitHub App (Workers Builds). `wrangler.toml`
+declares the `KV` binding without an id, so Wrangler **auto-provisions** the KV namespace on
+first deploy; later deploys inherit the binding from the deployed version, so the same
+namespace (and its data) is reused.
 
 1. **Connect the repo**: Cloudflare dashboard → Workers → *Create* → *Import a repository* →
    pick this repo. No build command is needed (wrangler bundles `src/index.ts` directly).
-2. **KV binding**: add a KV namespace binding named `KV` (Settings → Bindings; the namespace
-   is created and attached there).
-3. **Variables and secrets** (Settings → Variables and Secrets):
+   The KV namespace is created automatically on the first deploy.
+2. **Variables and secrets** (Settings → Variables and Secrets):
    - Variables: `TC002_BASE` (e.g. `http://192.168.1.100`), `GOOGLE_CLIENT_ID`
    - Secrets: `OPENAI_API_KEY`, `TC002_TOKEN`, `GOOGLE_CLIENT_SECRET`,
      `ALLOWED_EMAIL` (the only Google account allowed to sign in)
-4. **Google OAuth** (sign-in + Calendar API)
+3. **Google OAuth** (sign-in + Calendar API)
    - Google Cloud Console → create an OAuth client (type: *Web application*).
    - Enable the **Google Calendar API**.
    - Add authorized redirect URI: `https://<your-worker>.workers.dev/auth/google/callback`
@@ -52,7 +53,7 @@ contains no bindings or variables.
      publish the app to avoid reconnecting weekly.
    - All agenda/holiday calendars you configure must be visible in the *connected* account's
      calendar list (share/subscribe them there). Calendars are matched by id or name.
-5. Open `https://<your-worker>.workers.dev`, sign in with Google, then fill in
+4. Open `https://<your-worker>.workers.dev`, sign in with Google, then fill in
    the configuration (agenda/holiday calendars, weather location, ...) and press
    **Generate & Send** to test.
 
@@ -87,16 +88,8 @@ cp .dev.vars.example .dev.vars   # fill in secrets for `wrangler dev`
 npm run dev
 ```
 
-`wrangler.toml` declares no bindings, so local dev needs a config overlay that adds the KV
-namespace: create `wrangler.dev.toml` (git-ignored) with
-
-```toml
-[[kv_namespaces]]
-binding = "KV"
-id = "<id from: npx wrangler kv namespace create KV>"
-```
-
-and run `npx wrangler dev --config wrangler.dev.toml`.
+`wrangler dev` auto-provisions a local KV namespace that persists between runs, so no extra
+configuration is needed.
 
 Note: the scheduled handler only runs under `wrangler dev --test-scheduled`
 (then call `curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"`), and the TC002 must be
