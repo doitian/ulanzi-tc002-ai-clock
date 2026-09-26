@@ -26,16 +26,17 @@ test('fills a 52x16 frame with shaped pixel art', () => {
 
 test('event time is readable-color and identical across animated frames', () => {
   const event = scene([
-    { kind: 'rect', x: 0, y: 15, w: 31, h: 1, color: 2 },
+    { kind: 'rect', x: 0, y: 15, w: 52, h: 1, color: 2 },
     { kind: 'ellipse', x: 7, y: 1, w: 17, h: 13, color: 1 },
     { kind: 'rect', x: 0, y: 3, w: 5, h: 8, color: 2 },
+    { kind: 'rect', x: 40, y: 2, w: 8, h: 6, color: 2 },
   ], [[], [{ kind: 'rect', x: 10, y: 5, w: 3, h: 3, color: 2 }]]);
   const art = renderScene(event, '07:25');
   assert.equal(art.frames.length, 2);
   assert.equal(art.palette.at(-1), '#ffffff');
-  const rightSide = (frame) => Array.from(frame).filter((_, i) => i % MATRIX_W >= 31);
-  assert.deepEqual(rightSide(art.frames[0]), rightSide(art.frames[1]));
-  assert.ok(rightSide(art.frames[0]).filter(Boolean).length > 35);
+  const corner = (frame) => Array.from(frame).filter((_, i) => i % MATRIX_W >= 34 && Math.floor(i / MATRIX_W) >= 10);
+  assert.deepEqual(corner(art.frames[0]), corner(art.frames[1]));
+  assert.ok(corner(art.frames[0]).filter(Boolean).length > 35);
   assert.notDeepEqual(art.frames[0], art.frames[1]);
 });
 

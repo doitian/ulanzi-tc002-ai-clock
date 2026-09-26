@@ -61,7 +61,7 @@ export async function generatePixelArt(
 
 function userPrompt(theme: Theme): string {
   if (theme.timeLabel) {
-    return `Illustrate ${theme.text} in the LEFT 31 columns (x=0..30) of the 52x16 canvas. Cover at least 23 columns in that area with a bold subject and supporting details. Leave x=31..51 empty; the application overlays the static 24-hour event time ${theme.timeLabel} there. Do not draw text.`;
+    return `Illustrate ${theme.text}. Use the WHOLE 52x16 canvas: compelling subject near center, balanced details on both left and right edges, foreground and background. Keep the bottom-right corner (x=34..51, y=10..15) dark and empty; the application overlays the static 24-hour event time ${theme.timeLabel} there. Do not draw text.`;
   }
   return `Illustrate ${theme.text}. Use the WHOLE 52x16 canvas: compelling subject near center, balanced details on both left and right edges, foreground and background. Do not draw text.`;
 }

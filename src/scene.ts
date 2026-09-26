@@ -112,47 +112,48 @@ function drawShapes(pixels: Uint8Array, shapes: unknown, paletteSize: number, ma
   }
 }
 
-function checkCoverage(pixels: Uint8Array, isEvent: boolean): void {
+function checkCoverage(pixels: Uint8Array): void {
   let count = 0;
   let minX = MATRIX_W;
   let maxX = -1;
   let minY = MATRIX_H;
   let maxY = -1;
   const segments = [0, 0, 0];
-  const width = isEvent ? 31 : MATRIX_W;
   for (let y = 0; y < MATRIX_H; y++) {
-    for (let x = 0; x < width; x++) {
+    for (let x = 0; x < MATRIX_W; x++) {
       if (!pixels[y * MATRIX_W + x]) continue;
       count++;
       minX = Math.min(minX, x);
       maxX = Math.max(maxX, x);
       minY = Math.min(minY, y);
       maxY = Math.max(maxY, y);
-      segments[Math.min(2, Math.floor(x * 3 / width))]++;
+      segments[Math.min(2, Math.floor(x * 3 / MATRIX_W))]++;
     }
   }
-  const needed = isEvent ? 35 : 75;
-  const maximum = isEvent ? 260 : 420;
-  const span = isEvent ? 23 : 40;
-  if (count < needed || count > maximum || maxX - minX + 1 < span ||
-    maxY - minY + 1 < 9 || segments.some((n) => n < (isEvent ? 5 : 8))) {
-    const problem = count > maximum ? 'too many LEDs lit' : 'underused canvas';
-    throw new Error(`${problem}: ${count} lit pixels, ${Math.max(0, maxX - minX + 1)}-pixel horizontal span, ${Math.max(0, maxY - minY + 1)}-pixel height, sections ${segments.join('/')}. Use bold shapes and details across the ${width}x16 drawing area (${needed}–${maximum} lit pixels and at least ${span} columns wide).`);
+  if (count < 75 || count > 420 || maxX - minX + 1 < 40 ||
+    maxY - minY + 1 < 9 || segments.some((n) => n < 8)) {
+    const problem = count > 420 ? 'too many LEDs lit' : 'underused canvas';
+    throw new Error(`${problem}: ${count} lit pixels, ${Math.max(0, maxX - minX + 1)}-pixel horizontal span, ${Math.max(0, maxY - minY + 1)}-pixel height, sections ${segments.join('/')}. Use bold shapes and details across the ${MATRIX_W}x${MATRIX_H} drawing area (75–420 lit pixels and at least 40 columns wide).`);
   }
 }
 
+const TIME_X = 35;
+const TIME_Y = 11;
+
 function addTime(pixels: Uint8Array, time: string, color: number): void {
-  let x = 34;
+  for (let y = TIME_Y - 1; y < MATRIX_H; y++) {
+    for (let x = TIME_X - 1; x < MATRIX_W; x++) pixels[y * MATRIX_W + x] = 0;
+  }
+  let x = TIME_X;
   for (const char of time) {
     const glyph = DIGITS[char];
     for (let dy = 0; dy < glyph.length; dy++) {
       for (let dx = 0; dx < glyph[dy].length; dx++) {
-        if (glyph[dy][dx] === '1') put(pixels, x + dx, 5 + dy, color, MATRIX_W);
+        if (glyph[dy][dx] === '1') put(pixels, x + dx, TIME_Y + dy, color, MATRIX_W);
       }
     }
     x += glyph[0].length + 1;
   }
-  for (let y = 3; y <= 11; y++) put(pixels, 31, y, color, MATRIX_W);
 }
 
 export function renderScene(raw: unknown, timeLabel?: string): RenderedScene {
@@ -168,11 +169,9 @@ export function renderScene(raw: unknown, timeLabel?: string): RenderedScene {
     throw new Error('palette needs a bright foreground color');
   }
   if (!Array.isArray(scene.base) || scene.base.length === 0) throw new Error('base must contain shapes');
-  const event = !!timeLabel;
-  if (event && !/^\d{2}:\d{2}$/.test(timeLabel)) throw new Error('event time must be HH:MM');
-  const maxX = event ? 31 : MATRIX_W;
+  if (timeLabel && !/^\d{2}:\d{2}$/.test(timeLabel)) throw new Error('event time must be HH:MM');
   const base = new Uint8Array(MATRIX_W * MATRIX_H);
-  drawShapes(base, scene.base, palette.length, maxX, 60);
+  drawShapes(base, scene.base, palette.length, MATRIX_W, 60);
 
   const overlays = scene.frames === undefined ? [[]] : scene.frames;
   if (!Array.isArray(overlays) || overlays.length < 1 || overlays.length > 6) {
@@ -180,11 +179,11 @@ export function renderScene(raw: unknown, timeLabel?: string): RenderedScene {
   }
   const frames = overlays.map((shapes) => {
     const frame = base.slice();
-    drawShapes(frame, shapes, palette.length, maxX, 30);
-    checkCoverage(frame, event);
+    drawShapes(frame, shapes, palette.length, MATRIX_W, 30);
+    checkCoverage(frame);
     return frame;
   });
-  if (event) {
+  if (timeLabel) {
     let color: number;
     if (palette.length < 16) {
       palette.push('#ffffff');
