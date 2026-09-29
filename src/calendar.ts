@@ -89,6 +89,7 @@ async function getAccessToken(env: Env): Promise<string> {
     return tokens.access_token;
   }
   const res = await fetch('https://oauth2.googleapis.com/token', {
+    signal: AbortSignal.timeout(30_000),
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -120,6 +121,7 @@ export async function getCalendarToken(env: Env): Promise<string | null> {
 // Matches configured names against calendar id or summary (exact, then substring).
 async function resolveCalendars(accessToken: string, names: string[]): Promise<{ name: string; id: string }[]> {
   const res = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250', {
+    signal: AbortSignal.timeout(30_000),
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error(`calendarList failed: ${res.status} ${await res.text()}`);
@@ -155,7 +157,7 @@ export async function fetchEvents(
     });
     const res = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${params}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      { signal: AbortSignal.timeout(30_000), headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (!res.ok) continue; // calendar not shared/accessible - skip it
     const data = (await res.json()) as {

@@ -140,6 +140,7 @@ function moodTheme(cfg: Config, now: Date): Theme {
 
 async function newsTheme(): Promise<Theme | null> {
   const res = await fetch('https://feeds.bbci.co.uk/news/world/rss.xml', {
+    signal: AbortSignal.timeout(30_000),
     headers: { 'User-Agent': 'tc002-pixel-clock/1.0' },
   });
   if (!res.ok) return null;
@@ -163,6 +164,7 @@ async function weatherTheme(cfg: Config): Promise<Theme | null> {
   } else {
     const g = await fetch(
       `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1`,
+      { signal: AbortSignal.timeout(30_000) },
     );
     if (!g.ok) return null;
     const gd = (await g.json()) as { results?: { latitude: number; longitude: number; name: string }[] };
@@ -175,6 +177,7 @@ async function weatherTheme(cfg: Config): Promise<Theme | null> {
 
   const res = await fetch(
     `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`,
+    { signal: AbortSignal.timeout(30_000) },
   );
   if (!res.ok) return null;
   const data = (await res.json()) as { current?: { temperature_2m?: number; weather_code?: number } };

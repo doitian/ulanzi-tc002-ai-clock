@@ -162,9 +162,16 @@ function showLoggedOut() {
   say('acctStatus', 'Sign in with the allowed Google account to manage the clock.', '');
 }
 
-function describeLastRun(lr) {
-  if (!lr) return '';
-  var lines = ['Last run: ' + lr.at + (lr.ok ? ' (ok)' : ' (FAILED)')];
+function describeLastRun(lr, scheduledAt) {
+  var lines = [];
+  if (scheduledAt) {
+    lines.push('Last scheduled wake: ' + scheduledAt);
+    if (!lr || Date.parse(scheduledAt) > Date.parse(lr.at)) {
+      lines.push('  No result recorded yet (running or interrupted).');
+    }
+  }
+  if (!lr) return lines.join('\\n');
+  lines.push('Last run: ' + lr.at + (lr.ok ? ' (ok)' : ' (FAILED)'));
   if (lr.kind) lines.push('  kind: ' + lr.kind);
   if (lr.theme) lines.push('  theme: ' + lr.theme);
   if (lr.timeLabel) lines.push('  time: ' + lr.timeLabel);
@@ -196,7 +203,7 @@ function loadState() {
       el(IDS[k]).value = Array.isArray(v) ? v.join(', ') : (v == null ? '' : String(v));
     });
     el('f_skipallday').checked = !!s.config.skipAllDayAgendaEvents;
-    say('lastRun', describeLastRun(s.lastRun), s.lastRun && !s.lastRun.ok ? 'error' : '');
+    say('lastRun', describeLastRun(s.lastRun, s.lastScheduledAt), s.lastRun && !s.lastRun.ok ? 'error' : '');
     if (s.hasLastGif) refreshPreview();
   }).catch(function (e) {
     if (e.message !== 'not signed in') say('acctStatus', e.message, 'error');

@@ -31,6 +31,23 @@ The worker wakes **every 10 minutes, 07:00–23:59 UTC+0800** (fixed cron trigge
 
 Manual generation from the Web UI bypasses the dedupe and throttle.
 
+To ignore titles containing **Personal Commitment**, save `Personal Commitment` in the
+**Event exclusion pattern** field (matching is case-insensitive). An excluded event does
+not block random topics; the hourly topic throttle still applies.
+
+### Troubleshooting scheduled updates
+
+**Last scheduled wake** records when cron starts, separately from the **Last run** result.
+Timestamps ending in `Z` are UTC (add 8 hours for UTC+0800). If the wake is newer than the
+result, a run is still in progress or was interrupted. If both timestamps are stale during
+scheduled hours, check the deployed Worker's Cron Triggers and invocation logs in Cloudflare;
+the old event status does not mean that event is still active.
+
+Scheduled external requests time out after 30 seconds, except model generation, which allows
+120 seconds per attempt including streaming. For a reasoning model that times out, try
+setting **Thinking** to **off**. Failed generation or delivery does not advance the topic
+throttle or event dedupe key, so the next scheduled wake can retry.
+
 ## Setup
 
 Deployment is automated with the Cloudflare GitHub App (Workers Builds). `wrangler.toml`

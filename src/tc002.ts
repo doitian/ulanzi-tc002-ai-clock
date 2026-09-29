@@ -6,6 +6,7 @@ export async function sendToTc002(env: Env, cfg: Config, gifBase64: string): Pro
   if (!base) throw new Error('TC002 base URL is not configured (set it in the Web UI)');
 
   const res = await fetch(`${base}/api/apps/random`, {
+    signal: AbortSignal.timeout(30_000),
     method: 'POST',
     headers: {
       Authorization: `Bearer ${env.TC002_TOKEN}`,

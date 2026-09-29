@@ -71,7 +71,10 @@ export default {
 
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     // Fires every 10 minutes (wrangler.toml); dedupe/throttle live in runScheduled.
-    ctx.waitUntil(runScheduled(env).catch((e) => console.error('scheduled run failed:', e)));
+    ctx.waitUntil(runScheduled(env).catch((e) => {
+      console.error('scheduled run failed:', e);
+      throw e;
+    }));
   },
 };
 
@@ -90,6 +93,7 @@ async function handleState(env: Env, email: string): Promise<Response> {
     tc002BaseConfigured: config.tc002BaseUrl !== '',
     googleConnected: await isGoogleConnected(env),
     lastRun: await env.KV.get('last_run', 'json'),
+    lastScheduledAt: await env.KV.get('last_scheduled_at'),
     hasLastGif: (await env.KV.get('last_gif')) !== null,
     serverTime: new Date().toISOString(),
   });
