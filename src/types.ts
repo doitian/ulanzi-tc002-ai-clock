@@ -2,6 +2,7 @@ export interface Config {
   openaiBaseUrl: string;
   openaiModel: string;
   openaiThinking: 'default' | 'on' | 'off';
+  openaiTimeoutMinutes: number;
   timezone: string;
   agendaCalendars: string[];
   holidayCalendars: string[];

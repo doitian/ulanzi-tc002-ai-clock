@@ -74,7 +74,7 @@ async function chatCompletion(
 ): Promise<string> {
   const base = cfg.openaiBaseUrl.replace(/\/+$/, '');
   const res = await fetch(`${base}/chat/completions`, {
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(cfg.openaiTimeoutMinutes * 60_000),
     method: 'POST',
     headers: {
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,

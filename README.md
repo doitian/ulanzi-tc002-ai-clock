@@ -43,8 +43,12 @@ result, a run is still in progress or was interrupted. If both timestamps are st
 scheduled hours, check the deployed Worker's Cron Triggers and invocation logs in Cloudflare;
 the old event status does not mean that event is still active.
 
-Scheduled external requests time out after 30 seconds, except model generation, which allows
-120 seconds per attempt including streaming. For a reasoning model that times out, try
+Scheduled external requests time out after 30 seconds, except model generation, whose
+**Model timeout (minutes)** defaults to **12 minutes** per attempt including streaming.
+Configure it in the Web UI or via `POST /api/config` with `{"openaiTimeoutMinutes": 12}`
+(whole minutes, 1–60). This applies to both manual and scheduled generation. Platform
+execution limits still apply, and runs longer than the 10-minute cron interval can overlap.
+For a reasoning model that times out, try
 setting **Thinking** to **off**. Failed generation or delivery does not advance the topic
 throttle or event dedupe key, so the next scheduled wake can retry.
 
@@ -98,7 +102,7 @@ and `/auth/google/callback` requires that session.
 
 ### Configurable via UI
 
-OpenAI endpoint & model, thinking mode (DashScope reasoning models), timezone, agenda
+OpenAI endpoint & model, thinking mode (DashScope reasoning models), model timeout, timezone, agenda
 calendars, holiday calendars, skip-all-day toggle, event exclusion pattern (regex or
 substring), weather location, TC002 base URL.
 All credentials (`OPENAI_API_KEY`, `TC002_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,

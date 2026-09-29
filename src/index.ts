@@ -101,8 +101,13 @@ async function handleState(env: Env, email: string): Promise<Response> {
 
 async function handleSaveConfig(request: Request, env: Env): Promise<Response> {
   const patch = (await request.json()) as Partial<Config>;
-  const config = await saveConfig(env, patch);
-  return json({ ok: true, config });
+  try {
+    const config = await saveConfig(env, patch);
+    return json({ ok: true, config });
+  } catch (e) {
+    if (e instanceof RangeError) return json({ error: e.message }, 400);
+    throw e;
+  }
 }
 
 // Streams server-sent events: progress lines, then a final done/error event.

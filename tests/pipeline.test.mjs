@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { runScheduled } from '../src/pipeline.ts';
+import { saveConfig } from '../src/config.ts';
+import { runManual, runScheduled } from '../src/pipeline.ts';
 
 const now = Date.parse('2026-09-29T02:54:00Z');
 const standup = {
@@ -104,10 +105,20 @@ test('excluded events still respect the hourly random-topic throttle', async (t)
   assert.equal(JSON.parse(values.get('last_run')).skipped, 'topic throttled (max 1/hour)');
 });
 
+for (const [name, run] of [['manual', runManual], ['scheduled', runScheduled]]) {
+  test(`${name} generation uses the configured timeout without changing other deadlines`, async (t) => {
+    const { env } = setup(t);
+    await saveConfig(env, { openaiTimeoutMinutes: 8 });
+    const timeout = t.mock.method(AbortSignal, 'timeout');
+    await run(env);
+    assert.deepEqual(timeout.mock.calls.map(({ arguments: [ms] }) => ms), [30_000, 30_000, 480_000, 30_000]);
+  });
+}
+
 test('a model timeout replaces stale success without consuming the topic throttle', async (t) => {
   const { env, values } = setup(t);
   const timeout = AbortSignal.timeout;
-  t.mock.method(AbortSignal, 'timeout', (ms) => ms === 120_000
+  t.mock.method(AbortSignal, 'timeout', (ms) => ms === 720_000
     ? AbortSignal.abort(new DOMException('Model request timed out', 'TimeoutError'))
     : timeout(ms));
   await assert.rejects(runScheduled(env), /Model request timed out/);

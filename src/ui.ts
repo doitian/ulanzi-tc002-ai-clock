@@ -11,7 +11,7 @@ export function renderUi(): string {
   h1 { font-size: 1.4rem; }
   h2 { font-size: 1.05rem; margin-top: 32px; border-bottom: 1px solid #333; padding-bottom: 6px; }
   label { display: block; margin: 12px 0 4px; font-size: 0.88rem; color: #bbb; }
-  input[type=text], select, textarea {
+  input[type=text], input[type=number], select, textarea {
     width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px;
     border: 1px solid #444; background: #1c1c1c; color: #eee; font: inherit;
   }
@@ -79,6 +79,11 @@ export function renderUi(): string {
       <option value="off">off (enable_thinking: false)</option>
     </select>
   </div>
+  <div>
+    <label for="f_timeout">Model timeout (minutes)</label>
+    <input type="number" id="f_timeout" min="1" max="60" step="1" required placeholder="12">
+    <div class="hint">Per attempt, including streaming. Default: 12 minutes. Platform limits still apply.</div>
+  </div>
 </div>
 <div class="row">
   <div>
@@ -124,8 +129,8 @@ image is sent at most once per hour.</div>
 </div>
 
 <script>
-var FIELDS = ['openaiBaseUrl','openaiModel','openaiThinking','timezone','weatherLocation','agendaCalendars','holidayCalendars','eventExclusionPattern','tc002BaseUrl'];
-var IDS = { openaiBaseUrl:'f_base', openaiModel:'f_model', openaiThinking:'f_thinking', timezone:'f_tz', weatherLocation:'f_weather',
+var FIELDS = ['openaiBaseUrl','openaiModel','openaiThinking','openaiTimeoutMinutes','timezone','weatherLocation','agendaCalendars','holidayCalendars','eventExclusionPattern','tc002BaseUrl'];
+var IDS = { openaiBaseUrl:'f_base', openaiModel:'f_model', openaiThinking:'f_thinking', openaiTimeoutMinutes:'f_timeout', timezone:'f_tz', weatherLocation:'f_weather',
   agendaCalendars:'f_agenda', holidayCalendars:'f_holiday', eventExclusionPattern:'f_exclude',
   tc002BaseUrl:'f_tc002' };
 
@@ -234,6 +239,7 @@ el('gcalDisconnect').onclick = function () {
 };
 
 el('saveConfig').onclick = function () {
+  if (!el('f_timeout').reportValidity()) return;
   var patch = {};
   FIELDS.forEach(function (k) { patch[k] = el(IDS[k]).value; });
   patch.skipAllDayAgendaEvents = el('f_skipallday').checked;
