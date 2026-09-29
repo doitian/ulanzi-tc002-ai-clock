@@ -119,7 +119,7 @@ export function renderUi(): string {
   <input type="checkbox" id="f_skipallday">
   <label for="f_skipallday">Skip all-day events in agenda calendars</label>
 </div>
-<div class="hint" style="margin-top:12px">The worker wakes every 10 minutes, 07:00-23:59 UTC+0800
+<div class="hint" style="margin-top:12px">The worker wakes every 10 minutes, 08:00-20:59 UTC+0800
 (fixed cron in wrangler.toml; Cloudflare cron is UTC). Each wake sends an image for a newly
 active agenda event (the same event is never re-sent); with no active event, a random-topic
 image is sent at most once per hour.</div>
