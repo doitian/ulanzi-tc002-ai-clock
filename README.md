@@ -10,12 +10,15 @@ The worker wakes **every 10 minutes, 08:00–20:59 UTC+0800** (fixed cron trigge
 
 1. **Check the agenda calendars.** If a Google Calendar event is *active* (ongoing, or starting
    within 15 minutes; all-day and excluded-title events are skipped; the one whose start is
-   nearest to now wins), its theme is used and its start time (24h) is rendered as static pixel
+   nearest to now wins). Timed events that run from local midnight to a later local midnight,
+   or through 23:59, are all-day too — Google often stores "Out of office" that way. The
+   theme is used and its start time (24h) is rendered as static pixel
    text. The event's identity (`calendar|id`) is stored in KV (`last_event_key`) — **the same
-   event is never re-sent**.
+   event is never re-sent**. Skipping an all-day event here does not drop it from random topics.
 2. **Otherwise, a random topic**, throttled to **at most one image per hour** (tracked via the
    `last_topic_at` KV key). The same topic category is avoided on consecutive sends when
    alternatives work; a holiday is used at most once per local day. Sources:
+   - today's all-day events from the agenda calendar(s), when they are not the current event
    - today's all-day events from the configured holiday calendar(s)
    - a mood fitting the current time of day
    - the top BBC World News headline
@@ -42,6 +45,10 @@ Timestamps ending in `Z` are UTC (add 8 hours for UTC+0800). If the wake is newe
 result, a run is still in progress or was interrupted. If both timestamps are stale during
 scheduled hours, check the deployed Worker's Cron Triggers and invocation logs in Cloudflare;
 the old event status does not mean that event is still active.
+
+When a calendar event is selected, **Last run** includes `event fields`: `summary`, `eventType`,
+`start`/`end` (`date`, `dateTime`, `timeZone`), and `detectedAllDay`. Copy that JSON if all-day
+detection looks wrong.
 
 Scheduled external requests time out after 30 seconds, except model generation, whose
 **Model timeout (minutes)** defaults to **12 minutes** per attempt including streaming.

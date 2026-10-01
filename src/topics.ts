@@ -1,10 +1,11 @@
-import { fetchEvents, getCalendarToken, type RawEvent } from './calendar';
+import { fetchEvents, getCalendarToken, type CalendarEventFields, type RawEvent } from './calendar';
 import type { Config, Env } from './types';
 
 export interface Theme {
   kind: 'calendar-event' | 'holiday' | 'mood' | 'news' | 'weather' | 'custom';
   text: string;
   timeLabel?: string; // HH:MM (24h), rendered statically in the art
+  eventFields?: CalendarEventFields;
 }
 
 export interface ActiveEventTheme {
@@ -12,37 +13,52 @@ export interface ActiveEventTheme {
   key: string; // stable identity, used to avoid re-sending the same event
 }
 
+export interface AgendaLookup {
+  events?: Promise<RawEvent[]>;
+}
+
 // Manual generation path (Web UI): always picks a fresh theme.
 export async function pickTheme(env: Env, cfg: Config): Promise<Theme> {
   const now = new Date();
   const token = await getCalendarToken(env);
+  const agenda = {};
   if (token && cfg.agendaCalendars.length > 0) {
     try {
-      const active = await findActiveEventTheme(token, cfg, now);
+      const active = await findActiveEventTheme(token, cfg, now, agenda);
       if (active) return active.theme;
     } catch {
       // calendar problems must not break theme selection
     }
   }
-  return pickRandomTopic(env, cfg, token, now);
+  return pickRandomTopic(env, cfg, token, now, agenda);
 }
 
 export async function findActiveEventTheme(
   token: string,
   cfg: Config,
   now: Date,
+  agenda?: AgendaLookup,
 ): Promise<ActiveEventTheme | null> {
-  const ev = await findActiveEvent(token, cfg, now);
+  const ev = await findActiveEvent(token, cfg, now, agenda);
   if (!ev) return null;
-  const theme: Theme = { kind: 'calendar-event', text: `Calendar event "${ev.title}"` };
+  const theme = calendarTheme(ev);
   if (ev.start) theme.timeLabel = formatHHMM(new Date(ev.start), cfg.timezone);
   const key = `${ev.calendar}|${ev.id ?? `${ev.title}|${ev.start ?? ev.date ?? ''}`}`;
   return { theme, key };
 }
 
-export async function pickRandomTopic(env: Env, cfg: Config, token: string | null, now: Date): Promise<Theme> {
+export async function pickRandomTopic(
+  env: Env,
+  cfg: Config,
+  token: string | null,
+  now: Date,
+  agenda?: AgendaLookup,
+): Promise<Theme> {
   const sources: { kind: Theme['kind']; pick: () => Promise<Theme | null> }[] = [];
   const holidayShownToday = (await env.KV.get('last_holiday_date')) === localDate(now, cfg.timezone);
+  if (token && cfg.agendaCalendars.length > 0 && cfg.skipAllDayAgendaEvents) {
+    sources.push({ kind: 'calendar-event', pick: () => agendaAllDayTheme(token, cfg, now, agenda) });
+  }
   if (token && cfg.holidayCalendars.length > 0 && !holidayShownToday) {
     sources.push({ kind: 'holiday', pick: () => holidayTheme(token, cfg, now) });
   }
@@ -66,13 +82,13 @@ export async function pickRandomTopic(env: Env, cfg: Config, token: string | nul
 
 // Active = ongoing, or starting within 15 minutes. Among several actives,
 // pick the one whose start is nearest to now.
-async function findActiveEvent(token: string, cfg: Config, now: Date): Promise<RawEvent | null> {
-  const events = await fetchEvents(
-    token,
-    cfg.agendaCalendars,
-    new Date(now.getTime() - 12 * 3600_000),
-    new Date(now.getTime() + 24 * 3600_000),
-  );
+async function findActiveEvent(
+  token: string,
+  cfg: Config,
+  now: Date,
+  agenda?: AgendaLookup,
+): Promise<RawEvent | null> {
+  const events = await loadAgendaEvents(token, cfg, now, agenda);
   const isExcluded = exclusionMatcher(cfg.eventExclusionPattern);
   const nowMs = now.getTime();
   const today = localDate(now, cfg.timezone);
@@ -81,7 +97,7 @@ async function findActiveEvent(token: string, cfg: Config, now: Date): Promise<R
     if (isExcluded(ev.title)) return false;
     if (ev.allDay) {
       if (cfg.skipAllDayAgendaEvents) return false;
-      return !!ev.date && !!ev.endDate && ev.date <= today && today < ev.endDate;
+      return coversToday(ev, today);
     }
     if (!ev.start || !ev.end) return false;
     const s = new Date(ev.start).getTime();
@@ -113,12 +129,57 @@ async function holidayTheme(token: string, cfg: Config, now: Date): Promise<Them
     cfg.holidayCalendars,
     new Date(now.getTime() - 3 * 86400_000),
     new Date(now.getTime() + 3 * 86400_000),
+    cfg.timezone,
   );
   const today = localDate(now, cfg.timezone);
-  const hits = events.filter((ev) => ev.allDay && ev.date && ev.endDate && ev.date <= today && today < ev.endDate);
+  const hits = events.filter((ev) => ev.allDay && coversToday(ev, today));
   if (hits.length === 0) return null;
   const ev = hits[Math.floor(Math.random() * hits.length)];
-  return { kind: 'holiday', text: `Local holiday: ${ev.title}` };
+  return { kind: 'holiday', text: `Local holiday: ${ev.title}`, eventFields: ev.fields };
+}
+
+async function loadAgendaEvents(
+  token: string,
+  cfg: Config,
+  now: Date,
+  agenda?: AgendaLookup,
+): Promise<RawEvent[]> {
+  const load = () => fetchEvents(
+    token,
+    cfg.agendaCalendars,
+    new Date(now.getTime() - 12 * 3600_000),
+    new Date(now.getTime() + 24 * 3600_000),
+    cfg.timezone,
+  );
+  if (!agenda) return load();
+  agenda.events ??= load();
+  return agenda.events;
+}
+
+async function agendaAllDayTheme(
+  token: string,
+  cfg: Config,
+  now: Date,
+  agenda?: AgendaLookup,
+): Promise<Theme | null> {
+  const events = await loadAgendaEvents(token, cfg, now, agenda);
+  const today = localDate(now, cfg.timezone);
+  const isExcluded = exclusionMatcher(cfg.eventExclusionPattern);
+  const hits = events.filter((ev) => ev.allDay && !isExcluded(ev.title) && coversToday(ev, today));
+  if (hits.length === 0) return null;
+  return calendarTheme(hits[Math.floor(Math.random() * hits.length)]);
+}
+
+function coversToday(ev: RawEvent, today: string): boolean {
+  return !!ev.date && !!ev.endDate && ev.date <= today && today < ev.endDate;
+}
+
+function calendarTheme(ev: RawEvent): Theme {
+  return {
+    kind: 'calendar-event',
+    text: `Calendar event "${ev.title}"`,
+    eventFields: ev.fields,
+  };
 }
 
 function moodTheme(cfg: Config, now: Date): Theme {

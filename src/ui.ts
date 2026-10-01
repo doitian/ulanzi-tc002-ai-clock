@@ -117,8 +117,9 @@ export function renderUi(): string {
 </div>
 <div class="checkline">
   <input type="checkbox" id="f_skipallday">
-  <label for="f_skipallday">Skip all-day events in agenda calendars</label>
+  <label for="f_skipallday">Skip all-day events as the current agenda event</label>
 </div>
+<div class="hint">Skipped all-day agenda events can still be chosen as a random topic. Last run shows the Google fields used to detect all-day events.</div>
 <div class="hint" style="margin-top:12px">The worker wakes every 10 minutes, 08:00-20:59 UTC+0800
 (fixed cron in wrangler.toml; Cloudflare cron is UTC). Each wake sends an image for a newly
 active agenda event (the same event is never re-sent); with no active event, a random-topic
@@ -182,6 +183,7 @@ function describeLastRun(lr, scheduledAt) {
   if (lr.timeLabel) lines.push('  time: ' + lr.timeLabel);
   if (lr.frames) lines.push('  frames: ' + lr.frames);
   if (lr.skipped) lines.push('  skipped: ' + lr.skipped);
+  if (lr.eventFields) lines.push('  event fields: ' + JSON.stringify(lr.eventFields));
   if (lr.error) lines.push('  error: ' + lr.error);
   return lines.join('\\n');
 }

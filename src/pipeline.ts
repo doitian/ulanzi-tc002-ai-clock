@@ -2,7 +2,7 @@ import { getCalendarToken } from './calendar';
 import { getConfig } from './config';
 import { generatePixelArt } from './pixelart';
 import { sendToTc002 } from './tc002';
-import { findActiveEventTheme, localDate, pickRandomTopic, pickTheme, type Theme } from './topics';
+import { findActiveEventTheme, localDate, pickRandomTopic, pickTheme, type AgendaLookup, type Theme } from './topics';
 import type { Config, Env, ProgressFn } from './types';
 
 const TOPIC_THROTTLE_MS = 60 * 60_000; // at most one random-topic image per hour
@@ -25,7 +25,7 @@ export async function runManual(env: Env, prompt?: string, onProgress?: Progress
     onProgress?.({ step: 'theme', detail: `${theme.kind}: ${theme.text}` });
     return await generateSendRecord(env, cfg, theme, onProgress);
   } catch (e) {
-    await recordRun(env, { ok: false, kind: theme?.kind, theme: theme?.text, error: message(e) });
+    await recordRun(env, { ok: false, ...themeRecord(theme), error: message(e) });
     throw e;
   }
 }
@@ -48,10 +48,11 @@ async function schedule(env: Env): Promise<string> {
   const now = new Date();
   const token = await getCalendarToken(env);
 
+  const agenda: AgendaLookup = {};
   let active = null;
   if (token && cfg.agendaCalendars.length > 0) {
     try {
-      active = await findActiveEventTheme(token, cfg, now);
+      active = await findActiveEventTheme(token, cfg, now, agenda);
     } catch (e) {
       // calendar failure falls through to the throttled random topic
       console.error('agenda check failed:', e);
@@ -63,9 +64,7 @@ async function schedule(env: Env): Promise<string> {
       await recordRun(env, {
         ok: true,
         skipped: 'active event already sent',
-        kind: 'calendar-event',
-        theme: active.theme.text,
-        timeLabel: active.theme.timeLabel ?? null,
+        ...themeRecord(active.theme),
       });
       return 'skipped-same-event';
     }
@@ -79,9 +78,10 @@ async function schedule(env: Env): Promise<string> {
     await recordRun(env, { ok: true, skipped: 'topic throttled (max 1/hour)' });
     return 'skipped-topic-throttled';
   }
-  const theme = await pickRandomTopic(env, cfg, token, now);
+  const theme = await pickRandomTopic(env, cfg, token, now, agenda);
   await generateSendRecord(env, cfg, theme);
   await env.KV.put('last_topic_at', String(now.getTime()));
+  if (theme.kind === 'calendar-event') await env.KV.put('last_topic_kind', theme.kind);
   return 'sent-topic';
 }
 
@@ -104,12 +104,20 @@ async function generateSendRecord(
   await env.KV.put('last_gif', art.gifBase64);
   await recordRun(env, {
     ok: true,
-    kind: theme.kind,
-    theme: theme.text,
-    timeLabel: theme.timeLabel ?? null,
+    ...themeRecord(theme),
     frames: art.frames,
   });
   return { theme, frames: art.frames };
+}
+
+function themeRecord(theme?: Theme): Record<string, unknown> {
+  if (!theme) return {};
+  return {
+    kind: theme.kind,
+    theme: theme.text,
+    timeLabel: theme.timeLabel ?? null,
+    ...(theme.eventFields ? { eventFields: theme.eventFields } : {}),
+  };
 }
 
 async function recordRun(env: Env, info: Record<string, unknown>): Promise<void> {

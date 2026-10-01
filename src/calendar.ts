@@ -9,6 +9,14 @@ interface GoogleTokens {
 const TOKEN_KEY = 'google_tokens';
 const SCOPE = 'openid email https://www.googleapis.com/auth/calendar.readonly';
 
+export interface CalendarEventFields {
+  summary: string;
+  eventType?: string;
+  start?: { date?: string; dateTime?: string; timeZone?: string };
+  end?: { date?: string; dateTime?: string; timeZone?: string };
+  detectedAllDay: boolean;
+}
+
 export interface RawEvent {
   id?: string;
   title: string;
@@ -18,6 +26,7 @@ export interface RawEvent {
   end?: string;
   date?: string; // YYYY-MM-DD start (inclusive) for all-day events
   endDate?: string; // YYYY-MM-DD end (exclusive) for all-day events
+  fields: CalendarEventFields;
 }
 
 export async function isGoogleConnected(env: Env): Promise<boolean> {
@@ -138,12 +147,124 @@ async function resolveCalendars(accessToken: string, names: string[]): Promise<{
   return out;
 }
 
+// Google and synced calendars often store all-day events, including "Out of office",
+// as dateTimes on local midnights instead of date-only values.
+export function allDayBounds(
+  startIso: string,
+  endIso: string,
+  timeZone: string,
+): { date: string; endDate: string } | null {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null;
+  const startWall = wallClock(start, timeZone);
+  const endWall = wallClock(end, timeZone);
+  if (!startWall || !endWall || startWall.hms !== '00:00:00') return null;
+  if (endWall.hms === '00:00:00' && endWall.ymd > startWall.ymd) {
+    return { date: startWall.ymd, endDate: endWall.ymd };
+  }
+  if ((endWall.hms === '23:59:00' || endWall.hms === '23:59:59') && endWall.ymd >= startWall.ymd) {
+    return { date: startWall.ymd, endDate: addDays(endWall.ymd, 1) };
+  }
+  return null;
+}
+
+function wallClock(d: Date, timeZone: string): { ymd: string; hms: string } | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(d);
+    const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '';
+    const hour = get('hour') === '24' ? '00' : get('hour').padStart(2, '0');
+    return {
+      ymd: `${get('year')}-${get('month').padStart(2, '0')}-${get('day').padStart(2, '0')}`,
+      hms: `${hour}:${get('minute').padStart(2, '0')}:${get('second').padStart(2, '0')}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function addDays(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+function toRawEvent(
+  item: {
+    id?: string;
+    summary?: string;
+    eventType?: string;
+    start?: { dateTime?: string; date?: string; timeZone?: string };
+    end?: { dateTime?: string; date?: string; timeZone?: string };
+  },
+  calendar: string,
+  timeZone?: string,
+): RawEvent {
+  const title = item.summary ?? '(no title)';
+  const base = { id: item.id, title, calendar };
+  const withFields = (allDay: boolean, extra: Omit<RawEvent, 'id' | 'title' | 'calendar' | 'allDay' | 'fields'>): RawEvent => ({
+    ...base,
+    allDay,
+    ...extra,
+    fields: eventFields(item, allDay),
+  });
+  if (item.start?.date) return withFields(true, { date: item.start.date, endDate: item.end?.date });
+  const start = item.start?.dateTime;
+  const end = item.end?.dateTime;
+  if (start && end && timeZone) {
+    const bounds = allDayBounds(start, end, timeZone);
+    if (bounds) return withFields(true, bounds);
+  }
+  return withFields(!start, { start, end });
+}
+
+function eventFields(
+  item: {
+    summary?: string;
+    eventType?: string;
+    start?: { date?: string; dateTime?: string; timeZone?: string };
+    end?: { date?: string; dateTime?: string; timeZone?: string };
+  },
+  detectedAllDay: boolean,
+): CalendarEventFields {
+  const fields: CalendarEventFields = {
+    summary: item.summary ?? '(no title)',
+    detectedAllDay,
+  };
+  if (item.eventType) fields.eventType = item.eventType;
+  const start = timeFields(item.start);
+  const end = timeFields(item.end);
+  if (start) fields.start = start;
+  if (end) fields.end = end;
+  return fields;
+}
+
+function timeFields(
+  value?: { date?: string; dateTime?: string; timeZone?: string },
+): { date?: string; dateTime?: string; timeZone?: string } | undefined {
+  if (!value) return undefined;
+  const out: { date?: string; dateTime?: string; timeZone?: string } = {};
+  if (value.date) out.date = value.date;
+  if (value.dateTime) out.dateTime = value.dateTime;
+  if (value.timeZone) out.timeZone = value.timeZone;
+  return out.date || out.dateTime || out.timeZone ? out : undefined;
+}
+
 // Returns events overlapping [timeMin, timeMax] across all matching calendars.
 export async function fetchEvents(
   accessToken: string,
   calendarNames: string[],
   timeMin: Date,
   timeMax: Date,
+  timeZone?: string,
 ): Promise<RawEvent[]> {
   const calendars = await resolveCalendars(accessToken, calendarNames);
   const out: RawEvent[] = [];
@@ -155,6 +276,7 @@ export async function fetchEvents(
       orderBy: 'startTime',
       maxResults: '100',
     });
+    if (timeZone) params.set('timeZone', timeZone);
     const res = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${params}`,
       { signal: AbortSignal.timeout(30_000), headers: { Authorization: `Bearer ${accessToken}` } },
@@ -165,23 +287,14 @@ export async function fetchEvents(
         status?: string;
         id?: string;
         summary?: string;
-        start?: { dateTime?: string; date?: string };
-        end?: { dateTime?: string; date?: string };
+        eventType?: string;
+        start?: { dateTime?: string; date?: string; timeZone?: string };
+        end?: { dateTime?: string; date?: string; timeZone?: string };
       }[];
     };
     for (const item of data.items ?? []) {
       if (item.status === 'cancelled') continue;
-      const allDay = !item.start?.dateTime;
-      out.push({
-        id: item.id,
-        title: item.summary ?? '(no title)',
-        calendar: cal.name,
-        allDay,
-        start: item.start?.dateTime,
-        end: item.end?.dateTime,
-        date: allDay ? item.start?.date : undefined,
-        endDate: allDay ? item.end?.date : undefined,
-      });
+      out.push(toRawEvent(item, cal.name, timeZone));
     }
   }
   return out;

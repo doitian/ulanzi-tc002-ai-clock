@@ -94,7 +94,14 @@ test('an already sent event only suppresses topics while still active', async (t
     ...standup, end: { dateTime: '2026-09-29T11:00:00+08:00' },
   }]);
   assert.equal(await runScheduled(env), 'skipped-same-event');
-  assert.equal(JSON.parse(values.get('last_run')).skipped, 'active event already sent');
+  const lastRun = JSON.parse(values.get('last_run'));
+  assert.equal(lastRun.skipped, 'active event already sent');
+  assert.deepEqual(lastRun.eventFields, {
+    summary: 'Dev Stand-up Meeting',
+    start: { dateTime: '2026-09-29T09:00:00+08:00' },
+    end: { dateTime: '2026-09-29T11:00:00+08:00' },
+    detectedAllDay: false,
+  });
   assert.equal(requests.length, 2);
 });
 
