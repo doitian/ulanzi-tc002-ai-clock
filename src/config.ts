@@ -3,7 +3,7 @@ import type { Config, Env } from './types';
 export const DEFAULT_CONFIG: Config = {
   openaiBaseUrl: 'https://api.openai.com/v1',
   openaiModel: 'gpt-4o',
-  openaiThinking: 'default',
+  openaiReasoningEffort: 'medium',
   openaiTimeoutMinutes: 12,
   timezone: 'Asia/Shanghai',
   agendaCalendars: [], // configure in the Web UI, e.g. ["alice@example.com"]
@@ -15,10 +15,19 @@ export const DEFAULT_CONFIG: Config = {
 };
 
 const KEY = 'config';
+const REASONING_EFFORTS: Config['openaiReasoningEffort'][] = [
+  'default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
+];
 
 export async function getConfig(env: Env): Promise<Config> {
-  const stored = await env.KV.get(KEY, 'json');
-  return { ...DEFAULT_CONFIG, ...(stored as Partial<Config> | null) };
+  const stored = await env.KV.get(KEY, 'json') as (Partial<Config> & { openaiThinking?: string }) | null;
+  const { openaiThinking, ...config } = stored ?? {};
+  return {
+    ...DEFAULT_CONFIG,
+    ...config,
+    openaiReasoningEffort: config.openaiReasoningEffort
+      ?? (openaiThinking === 'off' ? 'none' : DEFAULT_CONFIG.openaiReasoningEffort),
+  };
 }
 
 export async function saveConfig(env: Env, patch: Partial<Config>): Promise<Config> {
@@ -32,6 +41,11 @@ export async function saveConfig(env: Env, patch: Partial<Config>): Promise<Conf
       target[key] = Array.isArray(value)
         ? value.map((s) => String(s).trim()).filter(Boolean)
         : String(value).split(',').map((s) => s.trim()).filter(Boolean);
+    } else if (key === 'openaiReasoningEffort') {
+      if (!REASONING_EFFORTS.includes(value as Config['openaiReasoningEffort'])) {
+        throw new RangeError(`Reasoning effort must be one of: ${REASONING_EFFORTS.join(', ')}`);
+      }
+      next.openaiReasoningEffort = value as Config['openaiReasoningEffort'];
     } else if (key === 'openaiTimeoutMinutes') {
       const minutes = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN;
       if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) {

@@ -1,7 +1,7 @@
 export interface Config {
   openaiBaseUrl: string;
   openaiModel: string;
-  openaiThinking: 'default' | 'on' | 'off';
+  openaiReasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   openaiTimeoutMinutes: number;
   timezone: string;
   agendaCalendars: string[];

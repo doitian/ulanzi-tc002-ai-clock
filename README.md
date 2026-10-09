@@ -28,8 +28,9 @@ The worker wakes **every 20 minutes, 08:00–20:59 UTC+0800** (fixed cron trigge
    vertical coverage, draws event times with a fixed pixel font, then encodes 1–6 frames as
    a GIF in pure JS (`gifenc`). Chat completions stream live progress, including thinking
    activity when the provider emits `reasoning_content`.
-   For `qwen3.8-max`, set **Thinking** to **off** in the Web UI: the default thinking mode
-   can run for many minutes and lead to HTTP 524 timeouts.
+   **Reasoning effort** defaults to **medium** and is sent as `reasoning_effort` for both
+   OpenAI and DashScope. For `qwen3.8-max`, try **low** or **none** if reasoning leads to
+   HTTP 524 timeouts; **none** disables thinking without needing `enable_thinking`.
 4. **Send.** The GIF is POSTed as a data URL to `<tc002-base-url>/api/apps/random`.
 
 Manual generation from the Web UI bypasses the dedupe and throttle.
@@ -74,8 +75,8 @@ Configure it in the Web UI or via `POST /api/config` with `{"openaiTimeoutMinute
 execution limits still apply. Cloudflare's [scheduled handler](https://developers.cloudflare.com/workers/runtime-apis/handlers/scheduled/)
 has a 15-minute invocation limit; increasing the cron interval does not increase that limit.
 For a reasoning model that times out, try
-setting **Thinking** to **off**. Failed generation or delivery does not advance the topic
-throttle or event dedupe key, so the next scheduled wake can retry.
+setting **Reasoning effort** to **low** or **none**. Failed generation or delivery does not
+advance the topic throttle or event dedupe key, so the next scheduled wake can retry.
 
 ## Setup
 
@@ -127,9 +128,18 @@ and `/auth/google/callback` requires that session.
 
 ### Configurable via UI
 
-OpenAI endpoint & model, thinking mode (DashScope reasoning models), model timeout, timezone, agenda
+OpenAI endpoint & model, reasoning effort, model timeout, timezone, agenda
 calendars, holiday calendars, skip-all-day toggle, event exclusion pattern (regex or
 substring), weather location, TC002 base URL.
+
+**Reasoning effort** accepts `default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`,
+and `max`, with **medium** as the default. Supported levels depend on the provider and model;
+choose `default` to omit the parameter for models such as `gpt-4o` that do not support it.
+Configure it via `POST /api/config` with `{"openaiReasoningEffort": "medium"}`.
+For DashScope `qwen3.8-max`, `minimal`/`low` map to a 4,096-token thinking budget, `medium`
+to 16,384, and `high`/`xhigh`/`max` to 262,144; `none` disables thinking.
+Existing configurations with Thinking set to `off` migrate to `none`; others default to `medium`.
+
 All credentials (`OPENAI_API_KEY`, `TC002_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `ALLOWED_EMAIL`) stay secrets.
 

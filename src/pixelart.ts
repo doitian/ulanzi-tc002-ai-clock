@@ -85,8 +85,7 @@ async function chatCompletion(
       messages,
       temperature: 1.0,
       stream: true,
-      ...(cfg.openaiThinking === 'on' ? { enable_thinking: true } : {}),
-      ...(cfg.openaiThinking === 'off' ? { enable_thinking: false } : {}),
+      ...(cfg.openaiReasoningEffort !== 'default' ? { reasoning_effort: cfg.openaiReasoningEffort } : {}),
     }),
   });
   if (!res.ok) throw new Error(`LLM API error ${res.status}: ${(await res.text()).slice(0, 500)}`);

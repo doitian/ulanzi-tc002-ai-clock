@@ -80,12 +80,18 @@ check the Worker's Observability logs in Cloudflare for progress and the invocat
     <input type="text" id="f_model" placeholder="gpt-4o">
   </div>
   <div>
-    <label for="f_thinking">Thinking (DashScope reasoning models)</label>
-    <select id="f_thinking">
-      <option value="default">default (provider decides)</option>
-      <option value="on">on (enable_thinking: true)</option>
-      <option value="off">off (enable_thinking: false)</option>
+    <label for="f_effort">Reasoning effort</label>
+    <select id="f_effort">
+      <option value="default">default (omit parameter)</option>
+      <option value="none">none (disable thinking)</option>
+      <option value="minimal">minimal</option>
+      <option value="low">low</option>
+      <option value="medium" selected>medium</option>
+      <option value="high">high</option>
+      <option value="xhigh">xhigh</option>
+      <option value="max">max</option>
     </select>
+    <div class="hint">Default: medium. Supported levels depend on the model; choose default if reasoning_effort is unsupported.</div>
   </div>
   <div>
     <label for="f_timeout">Model timeout (minutes)</label>
@@ -138,8 +144,8 @@ image is sent at most once per hour.</div>
 </div>
 
 <script>
-var FIELDS = ['openaiBaseUrl','openaiModel','openaiThinking','openaiTimeoutMinutes','timezone','weatherLocation','agendaCalendars','holidayCalendars','eventExclusionPattern','tc002BaseUrl'];
-var IDS = { openaiBaseUrl:'f_base', openaiModel:'f_model', openaiThinking:'f_thinking', openaiTimeoutMinutes:'f_timeout', timezone:'f_tz', weatherLocation:'f_weather',
+var FIELDS = ['openaiBaseUrl','openaiModel','openaiReasoningEffort','openaiTimeoutMinutes','timezone','weatherLocation','agendaCalendars','holidayCalendars','eventExclusionPattern','tc002BaseUrl'];
+var IDS = { openaiBaseUrl:'f_base', openaiModel:'f_model', openaiReasoningEffort:'f_effort', openaiTimeoutMinutes:'f_timeout', timezone:'f_tz', weatherLocation:'f_weather',
   agendaCalendars:'f_agenda', holidayCalendars:'f_holiday', eventExclusionPattern:'f_exclude',
   tc002BaseUrl:'f_tc002' };
 

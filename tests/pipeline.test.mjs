@@ -139,6 +139,22 @@ for (const [name, run] of [['manual', runManual], ['scheduled', runScheduled]]) 
     await run(env);
     assert.deepEqual(timeout.mock.calls.map(({ arguments: [ms] }) => ms), [30_000, 30_000, 480_000, 30_000]);
   });
+
+  for (const effort of [undefined, 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'default']) {
+    test(`${name} generation sends reasoning effort ${effort ?? 'medium (default)'} without DashScope-specific fields`, async (t) => {
+      const { env, fetchMock } = setup(t);
+      if (effort !== undefined) await saveConfig(env, { openaiReasoningEffort: effort });
+      await run(env);
+      const modelCalls = fetchMock.mock.calls.filter(({ arguments: [url] }) => String(url).endsWith('/chat/completions'));
+      assert.equal(modelCalls.length, 1);
+      const body = JSON.parse(modelCalls[0].arguments[1].body);
+      if (effort === 'default') assert.equal('reasoning_effort' in body, false);
+      else assert.equal(body.reasoning_effort, effort ?? 'medium');
+      assert.equal('enable_thinking' in body, false);
+      assert.equal('thinking_budget' in body, false);
+      assert.equal(body.stream, true);
+    });
+  }
 }
 
 test('a model timeout replaces stale success without consuming the topic throttle', async (t) => {
