@@ -1,7 +1,7 @@
 import { clearSessionCookie, createSession, destroySession, getSessionEmail, sessionCookie } from './auth';
 import { buildAuthUrl, disconnectGoogle, handleAuthCallback, isGoogleConnected } from './calendar';
 import { getConfig, saveConfig } from './config';
-import { runManual, runScheduled } from './pipeline';
+import { getFailureLogs, runManual, runScheduled } from './pipeline';
 import type { Config, Env } from './types';
 import { renderUi } from './ui';
 
@@ -70,7 +70,7 @@ export default {
   },
 
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Fires every 10 minutes (wrangler.toml); dedupe/throttle live in runScheduled.
+    // Fires every 20 minutes (wrangler.toml); dedupe/throttle live in runScheduled.
     ctx.waitUntil(runScheduled(env).catch((e) => {
       console.error('scheduled run failed:', e);
       throw e;
@@ -93,6 +93,7 @@ async function handleState(env: Env, email: string): Promise<Response> {
     tc002BaseConfigured: config.tc002BaseUrl !== '',
     googleConnected: await isGoogleConnected(env),
     lastRun: await env.KV.get('last_run', 'json'),
+    failureLogs: await getFailureLogs(env),
     lastScheduledAt: await env.KV.get('last_scheduled_at'),
     hasLastGif: (await env.KV.get('last_gif')) !== null,
     serverTime: new Date().toISOString(),

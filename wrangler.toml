@@ -2,13 +2,18 @@ name = "tc002-pixel-clock"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# Fires every 10 minutes from 08:00 to 20:59 at UTC+0800.
+# Fires every 20 minutes from 08:00 to 20:59 at UTC+0800.
 # Cloudflare cron is always UTC, hence 00:00-12:59 UTC below.
 # Each wake checks the agenda calendars: a newly active
 # event triggers an image (same event is never re-sent); with no active event a
 # random-topic image is sent, throttled to at most once per hour (see src/pipeline.ts).
 [triggers]
-crons = ["*/10 0-12 * * *"]
+crons = ["*/20 0-12 * * *"]
+
+# Retain invocation outcomes and progress, including runs the runtime interrupts.
+[observability]
+enabled = true
+head_sampling_rate = 1
 
 # The KV namespace is auto-provisioned on first deploy (binding without an id):
 # Wrangler creates "tc002-pixel-clock-kv" and binds it; later deploys inherit the

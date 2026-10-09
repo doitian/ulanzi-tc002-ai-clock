@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { saveConfig } from '../src/config.ts';
-import { runManual, runScheduled } from '../src/pipeline.ts';
+import worker from '../src/index.ts';
+import { getFailureLogs, runManual, runScheduled } from '../src/pipeline.ts';
 
 const now = Date.parse('2026-09-29T02:54:00Z');
 const standup = {
@@ -28,6 +29,8 @@ const scene = {
 function setup(t, events = [standup, commitment]) {
   t.mock.timers.enable({ apis: ['Date'], now });
   t.mock.method(Math, 'random', () => 0.999);
+  const progressMock = t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'error', () => {});
   const values = new Map([
     ['config', JSON.stringify({
       agendaCalendars: ['Agenda'], eventExclusionPattern: 'personal commitment',
@@ -39,6 +42,7 @@ function setup(t, events = [standup, commitment]) {
     ['last_run', JSON.stringify({ at: '2026-09-29T01:10:53.084Z', ok: true, skipped: 'active event already sent' })],
   ]);
   const writes = [];
+  const writeOptions = new Map();
   const requests = [];
   const env = {
     OPENAI_API_KEY: 'test-key', TC002_TOKEN: 'test-token',
@@ -47,7 +51,22 @@ function setup(t, events = [standup, commitment]) {
         const value = values.get(key) ?? null;
         return type === 'json' ? JSON.parse(value) : value;
       },
-      put: async (key, value) => { values.set(key, value); writes.push([key, value]); },
+      put: async (key, value, options) => {
+        values.set(key, value);
+        writes.push([key, value]);
+        writeOptions.set(key, options);
+      },
+      delete: async (key) => { values.delete(key); },
+      list: async ({ prefix, limit, cursor }) => {
+        const keys = [...values.keys()].filter((key) => key.startsWith(prefix)).sort();
+        const start = Number(cursor ?? 0);
+        const end = start + limit;
+        return {
+          keys: keys.slice(start, end).map((name) => ({ name })),
+          list_complete: end >= keys.length,
+          cursor: String(end),
+        };
+      },
     },
   };
   const fetchMock = t.mock.method(globalThis, 'fetch', async (url, init) => {
@@ -65,7 +84,7 @@ function setup(t, events = [standup, commitment]) {
     }
     throw new Error(`Unexpected request: ${url}`);
   });
-  return { env, values, writes, requests, fetchMock };
+  return { env, values, writes, writeOptions, requests, fetchMock, progressMock };
 }
 
 test('ended stand-up and excluded ongoing commitment fall through to a mood image', async (t) => {
@@ -131,6 +150,11 @@ test('a model timeout replaces stale success without consuming the topic throttl
   await assert.rejects(runScheduled(env), /Model request timed out/);
   assert.equal(JSON.parse(values.get('last_run')).ok, false);
   assert.match(JSON.parse(values.get('last_run')).error, /timed out/);
+  const [failure] = await getFailureLogs(env);
+  assert.equal(failure.stage, 'llm');
+  assert.equal(failure.delivered, false);
+  assert.equal(failure.kind, 'mood');
+  assert.match(failure.logs.at(-1).detail, /attempt 1\/3/);
   assert.equal(values.get('last_topic_at'), String(now - 2 * 3600_000));
   assert.equal(values.has('last_gif'), false);
 });
@@ -157,8 +181,18 @@ test('delivery timeout leaves the event eligible for retry', async (t) => {
   assert.equal(values.get('last_event_key'), 'Agenda|standup');
   assert.equal(JSON.parse(values.get('last_run')).ok, false);
   assert.equal(values.has('last_gif'), false);
+  const [failure] = await getFailureLogs(env);
+  assert.equal(failure.stage, 'tc002');
+  assert.match(failure.theme, /Dev Stand-up Meeting/);
+  assert.equal(failure.eventFields.summary, standup.summary);
+  assert.deepEqual(failure.eventFields.start, standup.start);
+  assert.equal(failure.frames, 1);
+  assert.equal(failure.delivered, false);
+  assert.match(failure.logs.at(-1).detail, /sending to TC002/);
   assert.equal(await runScheduled(env), 'sent-event');
   assert.equal(values.get('last_event_key'), 'Agenda|new');
+  assert.equal(JSON.parse(values.get('last_run')).ok, true);
+  assert.deepEqual(await getFailureLogs(env), [failure]);
 });
 
 test('errors before generation replace stale status too', async (t) => {
@@ -166,4 +200,166 @@ test('errors before generation replace stale status too', async (t) => {
   values.set('config', 'invalid json');
   await assert.rejects(runScheduled(env));
   assert.equal(JSON.parse(values.get('last_run')).ok, false);
+  assert.equal((await getFailureLogs(env))[0].stage, 'config');
+});
+
+for (const [source, run] of [['manual', runManual], ['scheduled', runScheduled]]) {
+  test(`${source} delivery HTTP errors save diagnostic history for 30 days`, async (t) => {
+    const { env, values, writeOptions, fetchMock } = setup(t);
+    fetchMock.mock.mockImplementationOnce(async () => new Response('Clock is offline', { status: 503 }), 3);
+    await assert.rejects(run(env), /TC002 error 503: Clock is offline/);
+    const [failure] = await getFailureLogs(env);
+    assert.equal(failure.source, source);
+    assert.equal(failure.stage, 'tc002');
+    assert.equal(failure.startedAt, new Date(now).toISOString());
+    assert.equal(failure.logs[0].at, failure.startedAt);
+    assert.match(failure.stack, /Clock is offline/);
+    assert.ok(failure.logs.some((entry) => entry.step === 'scene'));
+    const [key] = [...values.keys()].filter((key) => key.startsWith('failed_run:'));
+    assert.equal(writeOptions.get(key).expirationTtl, 30 * 24 * 3600);
+    assert.doesNotMatch(values.get(key), /test-key|test-token|data:image/);
+    assert.equal(values.get('last_topic_at'), String(now - 2 * 3600_000));
+  });
+}
+
+test('authenticated state exposes failure logs after a later successful delivery', async (t) => {
+  const { env, values } = setup(t);
+  delete env.TC002_TOKEN;
+  await assert.rejects(runManual(env, 'a waving cat'), /TC002_TOKEN/);
+  env.TC002_TOKEN = 'test-token';
+  await runManual(env, 'a waving dog');
+  values.set('session:test', 'test@example.com');
+  const response = await worker.fetch(new Request('https://clock.example/api/state', {
+    headers: { Cookie: 'session=test' },
+  }), env, {});
+  assert.equal(response.status, 200);
+  const state = await response.json();
+  assert.equal(state.lastRun.ok, true);
+  assert.equal(state.lastRun.theme, 'a waving dog');
+  assert.equal(state.failureLogs.length, 1);
+  assert.equal(state.failureLogs[0].theme, 'a waving cat');
+  assert.equal(state.failureLogs[0].stage, 'tc002');
+  const unauthorized = await worker.fetch(new Request('https://clock.example/api/state'), env, {});
+  assert.equal(unauthorized.status, 401);
+});
+
+test('history saves only the 3 newest failures and deletes older records', async (t) => {
+  const { env, values } = setup(t);
+  delete env.OPENAI_API_KEY;
+  for (let i = 0; i < 12; i++) {
+    t.mock.timers.setTime(now + i * 1000);
+    await assert.rejects(runManual(env, `scene ${i}`), /OPENAI_API_KEY/);
+  }
+  const failures = await getFailureLogs(env);
+  assert.equal(failures.length, 3);
+  assert.equal([...values.keys()].filter((key) => key.startsWith('failed_run:')).length, 3);
+  assert.deepEqual(failures.map((failure) => failure.theme),
+    Array.from({ length: 3 }, (_, i) => `scene ${11 - i}`));
+});
+
+test('cleanup includes a newly saved failure even before KV listing sees it', async (t) => {
+  const { env, values } = setup(t);
+  delete env.OPENAI_API_KEY;
+  for (let i = 0; i < 3; i++) {
+    t.mock.timers.setTime(now + i * 1000);
+    await assert.rejects(runManual(env, `scene ${i}`), /OPENAI_API_KEY/);
+  }
+  const list = env.KV.list;
+  const previousKeys = new Set([...values.keys()].filter((key) => key.startsWith('failed_run:')));
+  t.mock.method(env.KV, 'list', async (options) => {
+    const page = await list(options);
+    return { ...page, keys: page.keys.filter((key) => previousKeys.has(key.name)) };
+  });
+  t.mock.timers.setTime(now + 3000);
+  await assert.rejects(runManual(env, 'newest scene'), /OPENAI_API_KEY/);
+  const records = [...values.entries()].filter(([key]) => key.startsWith('failed_run:'))
+    .map(([, value]) => JSON.parse(value));
+  assert.equal(records.length, 3);
+  assert.deepEqual(new Set(records.map((record) => record.theme)), new Set(['scene 1', 'scene 2', 'newest scene']));
+});
+
+test('cleanup removes older failures across every KV page', async (t) => {
+  const { env, values } = setup(t);
+  for (let i = 0; i < 8; i++) {
+    const order = String(9_999_999_999_999 - (now - (i + 1) * 1000)).padStart(13, '0');
+    values.set(`failed_run:${order}:old-${i}`, JSON.stringify({ theme: `old scene ${i}` }));
+  }
+  const list = env.KV.list;
+  t.mock.method(env.KV, 'list', async (options) => list({ ...options, limit: Math.min(2, options.limit) }));
+  delete env.OPENAI_API_KEY;
+  await assert.rejects(runManual(env, 'newest scene'), /OPENAI_API_KEY/);
+  const failures = await getFailureLogs(env);
+  assert.equal([...values.keys()].filter((key) => key.startsWith('failed_run:')).length, 3);
+  assert.deepEqual(failures.map((failure) => failure.theme), ['newest scene', 'old scene 0', 'old scene 1']);
+});
+
+test('concurrent failures at the same timestamp keep separate records', async (t) => {
+  const { env } = setup(t);
+  delete env.OPENAI_API_KEY;
+  const results = await Promise.allSettled([runManual(env, 'first scene'), runManual(env, 'second scene')]);
+  assert.ok(results.every((result) => result.status === 'rejected'));
+  const failures = await getFailureLogs(env);
+  assert.equal(failures.length, 2);
+  assert.notEqual(failures[0].runId, failures[1].runId);
+  assert.deepEqual(new Set(failures.map((failure) => failure.theme)), new Set(['first scene', 'second scene']));
+});
+
+test('history continues past empty KV pages left by expired keys', async (t) => {
+  const { env, values } = setup(t);
+  delete env.OPENAI_API_KEY;
+  await assert.rejects(runManual(env, 'a cat'), /OPENAI_API_KEY/);
+  const key = [...values.keys()].find((key) => key.startsWith('failed_run:'));
+  t.mock.method(env.KV, 'list', async ({ cursor }) => cursor
+    ? { keys: [{ name: key }], list_complete: true }
+    : { keys: [], list_complete: false, cursor: 'next-page' });
+  const failures = await getFailureLogs(env);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].theme, 'a cat');
+});
+
+test('failure to update last_run preserves the original error and independent failure history', async (t) => {
+  const { env, values } = setup(t);
+  delete env.OPENAI_API_KEY;
+  const put = env.KV.put;
+  t.mock.method(env.KV, 'put', async (key, value, options) => {
+    if (key === 'last_run') throw new Error('KV write limit');
+    return put(key, value, options);
+  });
+  await assert.rejects(runManual(env, 'a cat'), /OPENAI_API_KEY/);
+  assert.equal(JSON.parse(values.get('last_run')).ok, true);
+  assert.match((await getFailureLogs(env))[0].error, /OPENAI_API_KEY/);
+});
+
+test('state-saving errors report that TC002 already accepted the image', async (t) => {
+  const { env } = setup(t);
+  const put = env.KV.put;
+  t.mock.method(env.KV, 'put', async (key, value, options) => {
+    if (key === 'last_gif') throw new Error('Could not save preview');
+    return put(key, value, options);
+  });
+  await assert.rejects(runManual(env, 'a cat'), /Could not save preview/);
+  const [failure] = await getFailureLogs(env);
+  assert.equal(failure.stage, 'state');
+  assert.equal(failure.delivered, true);
+});
+
+test('progress is logged while generation is waiting, before a final result exists', async (t) => {
+  const { env, values, progressMock, fetchMock } = setup(t);
+  let release;
+  let started;
+  const waiting = new Promise((resolve) => { started = resolve; });
+  fetchMock.mock.mockImplementationOnce(async () => {
+    started();
+    return await new Promise((resolve) => { release = resolve; });
+  }, 2);
+  const pending = runScheduled(env);
+  await waiting;
+  const entries = progressMock.mock.calls.map(({ arguments: [entry] }) => entry);
+  assert.equal(entries.at(-1).step, 'llm');
+  assert.equal(entries.at(-1).source, 'scheduled');
+  assert.equal(entries.at(-1).startedAt, values.get('last_scheduled_at'));
+  assert.equal(new Set(entries.map((entry) => entry.runId)).size, 1);
+  assert.equal(JSON.parse(values.get('last_run')).at, '2026-09-29T01:10:53.084Z');
+  release(new Response('Provider unavailable', { status: 503 }));
+  await assert.rejects(pending, /LLM API error 503/);
 });

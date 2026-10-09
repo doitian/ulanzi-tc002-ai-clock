@@ -5,8 +5,8 @@ and pushes it to an Ulanzi TC002 LED clock — on a schedule, or on demand from 
 
 ## How it works
 
-The worker wakes **every 10 minutes, 08:00–20:59 UTC+0800** (fixed cron trigger in
-`wrangler.toml`; Cloudflare cron is always UTC, hence `*/10 0-12 * * *`). On each wake:
+The worker wakes **every 20 minutes, 08:00–20:59 UTC+0800** (fixed cron trigger in
+`wrangler.toml`; Cloudflare cron is always UTC, hence `*/20 0-12 * * *`). On each wake:
 
 1. **Check the agenda calendars.** If a Google Calendar event is *active* (ongoing, or starting
    within 15 minutes; all-day and excluded-title events are skipped; the one whose start is
@@ -46,6 +46,23 @@ result, a run is still in progress or was interrupted. If both timestamps are st
 scheduled hours, check the deployed Worker's Cron Triggers and invocation logs in Cloudflare;
 the old event status does not mean that event is still active.
 
+**Failure logs** in the Web UI retain only the latest 3 caught failures, newest first, even after
+later runs succeed. Saving a failure deletes older failure records from KV. Each retained
+failure expires after 30 days and includes its
+run ID, start/failure times, manual or scheduled source, selected theme/event fields,
+failed stage, whether delivery completed, error/stack, and the last 100 timestamped progress
+entries. HTTP errors include the provider or TC002 status and a response excerpt.
+Use **Refresh run status** to reload the result and history. `GET /api/state` returns this
+history as `failureLogs`.
+
+Cloudflare [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
+are enabled at 100% sampling in `wrangler.toml`. Progress is logged as it happens with a
+`runId`, `source`, and `startedAt`, so a runtime interruption can be investigated even when
+the Worker cannot execute its error handler or write a failure to KV. In the Cloudflare
+dashboard, open the Worker → **Observability**, find the cron invocation at the wake time,
+and inspect its outcome and progress. A newer wake without a result does not by itself
+identify the failure cause. Logs from before this change cannot be recovered by it.
+
 When a calendar event is selected, **Last run** includes `event fields`: `summary`, `eventType`,
 `start`/`end` (`date`, `dateTime`, `timeZone`), and `detectedAllDay`. Copy that JSON if all-day
 detection looks wrong.
@@ -54,7 +71,8 @@ Scheduled external requests time out after 30 seconds, except model generation, 
 **Model timeout (minutes)** defaults to **12 minutes** per attempt including streaming.
 Configure it in the Web UI or via `POST /api/config` with `{"openaiTimeoutMinutes": 12}`
 (whole minutes, 1–60). This applies to both manual and scheduled generation. Platform
-execution limits still apply, and runs longer than the 10-minute cron interval can overlap.
+execution limits still apply. Cloudflare's [scheduled handler](https://developers.cloudflare.com/workers/runtime-apis/handlers/scheduled/)
+has a 15-minute invocation limit; increasing the cron interval does not increase that limit.
 For a reasoning model that times out, try
 setting **Thinking** to **off**. Failed generation or delivery does not advance the topic
 throttle or event dedupe key, so the next scheduled wake can retry.
@@ -102,7 +120,7 @@ and `/auth/google/callback` requires that session.
 | `GET /auth/google/callback` | OAuth callback: verify email, store tokens, set session |
 | `POST /auth/logout` | destroy session (Google tokens stay, clock keeps running) |
 | `POST /auth/google/disconnect` | delete stored Google tokens (stops calendar features) |
-| `GET /api/state` | user, config, secret presence, Google status, last run |
+| `GET /api/state` | user, config, secret presence, Google status, last run, failure logs |
 | `POST /api/config` | update configuration (partial JSON merge) |
 | `POST /api/generate` | `{ "prompt": "..." }` — empty prompt = automatic topic; streams progress as SSE |
 | `GET /api/last.gif` | last generated GIF |

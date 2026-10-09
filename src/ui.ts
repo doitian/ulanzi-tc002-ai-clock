@@ -23,7 +23,9 @@ export function renderUi(): string {
   a button { margin-top: 4px; }
   .row { display: flex; gap: 12px; flex-wrap: wrap; }
   .row > div { flex: 1; min-width: 230px; }
-  .status { font-size: 0.85rem; color: #9ad; white-space: pre-wrap; margin-top: 10px; }
+  .status { font-size: 0.85rem; color: #9ad; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 10px; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; }
   .error { color: #f88; }
   .ok { color: #8f8; }
   .hint { font-size: 0.78rem; color: #888; margin-top: 2px; }
@@ -60,6 +62,12 @@ export function renderUi(): string {
 <div class="status" id="genStatus"></div>
 <img class="preview" id="preview" style="display:none" alt="last generated pixel art">
 <div class="status" id="lastRun"></div>
+<button id="refreshStatus" class="secondary">Refresh run status</button>
+
+<h2>Failure logs</h2>
+<div class="hint">Only the latest 3 failed runs are saved; older failure logs are deleted. For interrupted runs,
+check the Worker's Observability logs in Cloudflare for progress and the invocation outcome.</div>
+<div id="failureLogs"></div>
 
 <h2>Configuration</h2>
 <div class="row">
@@ -120,7 +128,7 @@ export function renderUi(): string {
   <label for="f_skipallday">Skip all-day events as the current agenda event</label>
 </div>
 <div class="hint">Skipped all-day agenda events can still be chosen as a random topic. Last run shows the Google fields used to detect all-day events.</div>
-<div class="hint" style="margin-top:12px">The worker wakes every 10 minutes, 08:00-20:59 UTC+0800
+<div class="hint" style="margin-top:12px">The worker wakes every 20 minutes, 08:00-20:59 UTC+0800
 (fixed cron in wrangler.toml; Cloudflare cron is UTC). Each wake sends an image for a newly
 active agenda event (the same event is never re-sent); with no active event, a random-topic
 image is sent at most once per hour.</div>
@@ -174,10 +182,16 @@ function describeLastRun(lr, scheduledAt) {
     lines.push('Last scheduled wake: ' + scheduledAt);
     if (!lr || Date.parse(scheduledAt) > Date.parse(lr.at)) {
       lines.push('  No result recorded yet (running or interrupted).');
+      lines.push('  For interrupted runs, check Cloudflare Observability logs at this wake time.');
     }
   }
   if (!lr) return lines.join('\\n');
   lines.push('Last run: ' + lr.at + (lr.ok ? ' (ok)' : ' (FAILED)'));
+  if (lr.runId) lines.push('  run ID: ' + lr.runId);
+  if (lr.startedAt) lines.push('  started: ' + lr.startedAt);
+  if (lr.source) lines.push('  source: ' + lr.source);
+  if (lr.stage) lines.push('  failed stage: ' + lr.stage);
+  if (!lr.ok && lr.delivered != null) lines.push('  image delivered: ' + yesno(lr.delivered));
   if (lr.kind) lines.push('  kind: ' + lr.kind);
   if (lr.theme) lines.push('  theme: ' + lr.theme);
   if (lr.timeLabel) lines.push('  time: ' + lr.timeLabel);
@@ -187,6 +201,41 @@ function describeLastRun(lr, scheduledAt) {
   if (lr.error) lines.push('  error: ' + lr.error);
   return lines.join('\\n');
 }
+
+function showRunState(s) {
+  say('lastRun', describeLastRun(s.lastRun, s.lastScheduledAt), s.lastRun && !s.lastRun.ok ? 'error' : '');
+  var container = el('failureLogs');
+  container.textContent = '';
+  var failures = s.failureLogs || [];
+  if (!failures.length) {
+    container.textContent = 'No saved failures.';
+    return;
+  }
+  failures.forEach(function (failure) {
+    var item = document.createElement('details');
+    var title = document.createElement('summary');
+    title.textContent = failure.at + ' (' + failure.source + ', ' + failure.stage + '): ' + failure.error;
+    var log = document.createElement('div');
+    log.className = 'status error';
+    var lines = [describeLastRun(failure)];
+    (failure.logs || []).forEach(function (entry) {
+      lines.push(entry.at + ' [' + entry.step + '] ' + (entry.detail || ''));
+    });
+    if (failure.stack) lines.push(failure.stack);
+    log.textContent = lines.join('\\n');
+    item.appendChild(title);
+    item.appendChild(log);
+    container.appendChild(item);
+  });
+}
+
+function refreshRunStatus() {
+  return api('/api/state').then(showRunState).catch(function (e) {
+    if (e.message !== 'not signed in') say('lastRun', e.message, 'error');
+  });
+}
+
+el('refreshStatus').onclick = refreshRunStatus;
 
 function loadState() {
   api('/api/state').then(function (s) {
@@ -210,7 +259,7 @@ function loadState() {
       el(IDS[k]).value = Array.isArray(v) ? v.join(', ') : (v == null ? '' : String(v));
     });
     el('f_skipallday').checked = !!s.config.skipAllDayAgendaEvents;
-    say('lastRun', describeLastRun(s.lastRun, s.lastScheduledAt), s.lastRun && !s.lastRun.ok ? 'error' : '');
+    showRunState(s);
     if (s.hasLastGif) refreshPreview();
   }).catch(function (e) {
     if (e.message !== 'not signed in') say('acctStatus', e.message, 'error');
@@ -264,9 +313,10 @@ function handleGenEvent(evt) {
     logLine('[done] sent to TC002 - theme: ' + evt.theme.text +
       ' (' + evt.theme.kind + ', ' + evt.frames + ' frame(s))', 'ok');
     refreshPreview();
-    api('/api/state').then(function (s) { say('lastRun', describeLastRun(s.lastRun), ''); });
+    refreshRunStatus();
   } else if (evt.type === 'error') {
     logLine('[error] ' + evt.error, 'error');
+    refreshRunStatus();
   }
 }
 
