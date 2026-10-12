@@ -1,4 +1,4 @@
-# TC002 Pixel Clock
+# Ulanzi TC002 AI Clock
 
 A Cloudflare Worker that generates 52×16 pixel art with an OpenAI-compatible chat model
 and pushes it to an Ulanzi TC002 LED clock — on a schedule, or on demand from a small Web UI.
@@ -40,6 +40,25 @@ To ignore titles containing **Personal Commitment**, save `Personal Commitment` 
 not block random topics; the hourly topic throttle still applies.
 
 ### Troubleshooting scheduled updates
+
+#### CPU limit exceeded (`exceededCpu`)
+
+An invocation with `outcome: "exceededCpu"` was terminated by Cloudflare after exhausting
+its CPU budget. For example, `cpuTimeMs: 10` is consistent with the **Workers Free** plan's
+10 ms limit, which cannot be raised on that plan. `wallTimeMs` includes time waiting for
+network requests; a longer wall time does not make this an API timeout.
+
+**Workers Paid is recommended for this app:** calendar processing, scene rendering, and
+GIF encoding can exceed the Free plan's CPU budget. After upgrading, open the Cloudflare
+dashboard → **Workers & Pages** → **ulanzi-tc002-ai-clock** → **Settings** → **CPU Limits**.
+Start with **1,000 ms (1 second)**, save, and monitor invocation `cpuTimeMs` to decide whether
+more headroom is needed. Network waits do not consume CPU time, so increasing the model
+request timeout does not fix this error. `ctx.waitUntil()` does not bypass CPU limits either.
+
+CPU termination can prevent the Worker from saving a failure to KV; check Cloudflare's
+invocation logs even if the Web UI has no new failure record.
+
+#### Run status and failure logs
 
 **Last scheduled wake** records when cron starts, separately from the **Last run** result.
 Timestamps ending in `Z` are UTC (add 8 hours for UTC+0800). If the wake is newer than the
@@ -84,6 +103,10 @@ Deployment is automated with the Cloudflare GitHub App (Workers Builds). `wrangl
 declares the `KV` binding without an id, so Wrangler **auto-provisions** the KV namespace on
 first deploy; later deploys inherit the binding from the deployed version, so the same
 namespace (and its data) is reused.
+
+**Use the Workers Paid plan** to avoid the Free plan's 10 ms CPU limit. See
+[CPU limit exceeded](#cpu-limit-exceeded-exceededcpu) above for the recommended starting
+budget and dashboard settings.
 
 1. **Connect the repo**: Cloudflare dashboard → Workers → *Create* → *Import a repository* →
    pick this repo. No build command is needed (wrangler bundles `src/index.ts` directly).

@@ -202,7 +202,7 @@ function moodTheme(cfg: Config, now: Date): Theme {
 async function newsTheme(): Promise<Theme | null> {
   const res = await fetch('https://feeds.bbci.co.uk/news/world/rss.xml', {
     signal: AbortSignal.timeout(30_000),
-    headers: { 'User-Agent': 'tc002-pixel-clock/1.0' },
+    headers: { 'User-Agent': 'ulanzi-tc002-ai-clock/1.0' },
   });
   if (!res.ok) return null;
   const xml = await res.text();

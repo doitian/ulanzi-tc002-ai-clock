@@ -1,4 +1,4 @@
-name = "tc002-pixel-clock"
+name = "ulanzi-tc002-ai-clock"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 

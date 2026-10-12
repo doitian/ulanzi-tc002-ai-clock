@@ -4,7 +4,7 @@ export function renderUi(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TC002 Pixel Clock</title>
+<title>Ulanzi TC002 AI Clock</title>
 <style>
   :root { color-scheme: dark; }
   body { font-family: system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 24px; background: #111; color: #eee; }
@@ -39,7 +39,7 @@ export function renderUi(): string {
 </style>
 </head>
 <body>
-<h1>TC002 Pixel Clock</h1>
+<h1>Ulanzi TC002 AI Clock</h1>
 
 <h2>Account <span class="badge off" id="gcalBadge" style="display:none"></span></h2>
 <div class="status" id="acctStatus">Checking sign-in...</div>
