@@ -26,5 +26,6 @@ binding = "KV"
 # set them in the dashboard (Settings -> Variables and Secrets):
 #
 #   Secrets: OPENAI_API_KEY, TC002_TOKEN, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ALLOWED_EMAIL
+#   OPENAI_API_KEY is the chat key for the configured endpoint.
 #
 # (The TC002 base URL is configured in the Web UI and stored in KV.)

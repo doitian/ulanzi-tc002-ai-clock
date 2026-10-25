@@ -2,6 +2,7 @@
 
 A Cloudflare Worker that generates 52×16 pixel art with an OpenAI-compatible chat model
 and pushes it to an Ulanzi TC002 LED clock — on a schedule, or on demand from a small Web UI.
+The default model is OpenCode Go `deepseek-v4.1-flash`.
 
 ## How it works
 
@@ -114,6 +115,11 @@ budget and dashboard settings.
 2. **Secrets** (Settings → Variables and Secrets): `OPENAI_API_KEY`, `TC002_TOKEN`,
    `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAIL` (the only Google account
    allowed to sign in). The TC002 base URL is configured later in the Web UI.
+   `OPENAI_API_KEY` is the chat key. Point the endpoint at an OpenAI-compatible API,
+   including OpenCode inference. The default endpoint is `https://opencode.ai/inference/go/v1`
+   and the default model is `deepseek-v4.1-flash`. Each image generation sends a new
+   `x-opencode-session`; retries inside that generation reuse it. A saved Web UI
+   configuration overrides the endpoint and model.
 3. **Google OAuth** (sign-in + Calendar API)
    - Google Cloud Console → create an OAuth client (type: *Web application*).
    - Enable the **Google Calendar API**.
@@ -151,7 +157,7 @@ and `/auth/google/callback` requires that session.
 
 ### Configurable via UI
 
-OpenAI endpoint & model, reasoning effort, model timeout, timezone, agenda
+Chat endpoint & model (default: OpenCode Go `deepseek-v4.1-flash`), reasoning effort, model timeout, timezone, agenda
 calendars, holiday calendars, skip-all-day toggle, event exclusion pattern (regex or
 substring), weather location, TC002 base URL.
 

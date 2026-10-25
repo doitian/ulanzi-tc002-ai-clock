@@ -1,8 +1,8 @@
 import type { Config, Env } from './types';
 
 export const DEFAULT_CONFIG: Config = {
-  openaiBaseUrl: 'https://api.openai.com/v1',
-  openaiModel: 'gpt-4o',
+  openaiBaseUrl: 'https://opencode.ai/inference/go/v1',
+  openaiModel: 'deepseek-v4.1-flash',
   openaiReasoningEffort: 'medium',
   openaiTimeoutMinutes: 12,
   timezone: 'Asia/Shanghai',

@@ -28,31 +28,44 @@ Canvas coordinates: x=0..51 left to right; y=0..15 top to bottom. Colors are zer
 
 The canvas is BLACK by default; do NOT paint a sky, background, or filled 52x16 rectangle! No large filled rectangles covering more than 100 pixels. Make a coherent full-width scene, not a small icon in a corner. Give the main subject a bold silhouette with foreground and small atmospheric details on BOTH edges. Span at least 40 columns and 9 rows with 75-420 lit pixels total; most LEDs MUST remain off. Use 8-25 thoughtful shapes/sprites rather than hundreds of tiny dots. A single line across the width alone is not sufficient. No written text: the application draws calendar time itself.`;
 
+const USER_AGENT = 'ulanzi-tc002-ai-clock/0.1.0';
+
+type ChatMessage = { role: string; content: string; reasoning_content?: string };
+
 export async function generatePixelArt(
   env: Env,
   cfg: Config,
   theme: Theme,
   onProgress?: ProgressFn,
 ): Promise<GeneratedArt> {
-  if (!env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY secret is not set');
+  const apiKey = credential(env);
+  // One id per image generation. Retries in this call stay on the same session.
+  const sessionId = crypto.randomUUID();
 
-  const messages: { role: string; content: string }[] = [
+  const messages: ChatMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: userPrompt(theme) },
   ];
 
   let lastError = 'no response';
   for (let attempt = 0; attempt < 3; attempt++) {
-    onProgress?.({ step: 'llm', detail: `designing scene with ${cfg.openaiModel} (attempt ${attempt + 1}/3)` });
-    const content = await chatCompletion(env, cfg, messages, onProgress);
+    onProgress?.({
+      step: 'llm',
+      detail: `designing scene with ${cfg.openaiModel} (attempt ${attempt + 1}/3, session ${sessionId})`,
+    });
+    const reply = await chatCompletion(cfg, messages, apiKey, sessionId, onProgress);
     try {
-      const art = renderScene(extractJson(content), theme.timeLabel);
+      const art = renderScene(extractJson(reply.content), theme.timeLabel);
       onProgress?.({ step: 'scene', detail: `rendered ${art.frames.length} full-canvas frame(s)` });
       return { gifBase64: encodeGif(art), frames: art.frames.length };
     } catch (e) {
       lastError = e instanceof Error ? e.message : String(e);
       onProgress?.({ step: 'scene', detail: `revising scene: ${lastError}` });
-      messages.push({ role: 'assistant', content });
+      messages.push({
+        role: 'assistant',
+        content: reply.content,
+        ...(reply.reasoning ? { reasoning_content: reply.reasoning } : {}),
+      });
       messages.push({ role: 'user', content: `Your scene did not render well: ${lastError}. Return a NEW complete JSON scene that fixes this issue. Use "kind" for each shape. The unlit canvas is already black: NEVER draw a large filled background or sky. Spread the subject and small details across the drawing area. JSON only.` });
     }
   }
@@ -66,19 +79,31 @@ function userPrompt(theme: Theme): string {
   return `Illustrate ${theme.text}. Use the WHOLE 52x16 canvas: compelling subject near center, balanced details on both left and right edges, foreground and background. Do not draw text.`;
 }
 
+function endpoint(cfg: Config): string {
+  return cfg.openaiBaseUrl.replace(/\/+$/, '');
+}
+
+function credential(env: Env): string {
+  if (!env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY secret is not set');
+  return env.OPENAI_API_KEY;
+}
+
 async function chatCompletion(
-  env: Env,
   cfg: Config,
-  messages: { role: string; content: string }[],
+  messages: ChatMessage[],
+  apiKey: string,
+  sessionId: string,
   onProgress?: ProgressFn,
-): Promise<string> {
-  const base = cfg.openaiBaseUrl.replace(/\/+$/, '');
+): Promise<{ content: string; reasoning: string }> {
+  const base = endpoint(cfg);
   const res = await fetch(`${base}/chat/completions`, {
     signal: AbortSignal.timeout(cfg.openaiTimeoutMinutes * 60_000),
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      'User-Agent': USER_AGENT,
+      'x-opencode-session': sessionId,
     },
     body: JSON.stringify({
       model: cfg.openaiModel,
@@ -95,7 +120,7 @@ async function chatCompletion(
   const decoder = new TextDecoder();
   let buffer = '';
   let content = '';
-  let reasoning = 0;
+  let reasoning = '';
   let reportedContent = 0;
   let reportedReasoning = 0;
   for (;;) {
@@ -114,7 +139,7 @@ async function chatCompletion(
           const delta = (JSON.parse(data) as {
             choices?: { delta?: { content?: string; reasoning_content?: string } }[];
           }).choices?.[0]?.delta;
-          if (delta?.reasoning_content) reasoning += delta.reasoning_content.length;
+          if (delta?.reasoning_content) reasoning += delta.reasoning_content;
           if (delta?.content) {
             if (!content) onProgress?.({ step: 'llm', detail: 'receiving scene...' });
             content += delta.content;
@@ -122,9 +147,9 @@ async function chatCompletion(
         } catch {}
       }
     }
-    if (reasoning > 0 && (reportedReasoning === 0 || reasoning - reportedReasoning >= 500)) {
-      reportedReasoning = reasoning;
-      onProgress?.({ step: 'think', detail: `thinking... ${reasoning} chars` });
+    if (reasoning.length > 0 && (reportedReasoning === 0 || reasoning.length - reportedReasoning >= 500)) {
+      reportedReasoning = reasoning.length;
+      onProgress?.({ step: 'think', detail: `thinking... ${reasoning.length} chars` });
     }
     if (content.length - reportedContent >= 1000) {
       reportedContent = content.length;
@@ -132,7 +157,7 @@ async function chatCompletion(
     }
   }
   if (!content) throw new Error('LLM returned an empty response');
-  return content;
+  return { content, reasoning };
 }
 
 function extractJson(text: string): unknown {

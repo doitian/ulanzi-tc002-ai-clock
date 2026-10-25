@@ -73,11 +73,12 @@ check the Worker's Observability logs in Cloudflare for progress and the invocat
 <div class="row">
   <div>
     <label for="f_base">OpenAI-compatible endpoint</label>
-    <input type="text" id="f_base" placeholder="https://api.openai.com/v1">
+    <input type="text" id="f_base" placeholder="https://opencode.ai/inference/go/v1">
+    <div class="hint">Default: OpenCode Go. Each image generation sends a new x-opencode-session.</div>
   </div>
   <div>
     <label for="f_model">Model</label>
-    <input type="text" id="f_model" placeholder="gpt-4o">
+    <input type="text" id="f_model" placeholder="deepseek-v4.1-flash">
   </div>
   <div>
     <label for="f_effort">Reasoning effort</label>

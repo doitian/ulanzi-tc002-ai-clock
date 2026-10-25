@@ -17,6 +17,13 @@ function setup(config) {
   return { env, values };
 }
 
+test('new configurations default to OpenCode Go deepseek-v4.1-flash', async () => {
+  const { env } = setup();
+  const config = await getConfig(env);
+  assert.equal(config.openaiBaseUrl, 'https://opencode.ai/inference/go/v1');
+  assert.equal(config.openaiModel, 'deepseek-v4.1-flash');
+});
+
 test('new and existing configurations default to medium reasoning effort', async () => {
   for (const stored of [undefined, { openaiModel: 'existing-model' }, { openaiThinking: 'default' }, { openaiThinking: 'on' }]) {
     const { env } = setup(stored);
@@ -116,6 +123,9 @@ test('config API reports invalid timeouts as 400 and accepts valid values', asyn
 
 test('UI includes reasoning effort and timeout fields and generates valid client JavaScript', () => {
   const html = renderUi();
+  assert.match(html, /placeholder="https:\/\/opencode.ai\/inference\/go\/v1"/);
+  assert.match(html, /placeholder="deepseek-v4.1-flash"/);
+  assert.match(html, /x-opencode-session/);
   assert.match(html, /id="f_timeout" min="1" max="60"/);
   assert.match(html, /<select id="f_effort">/);
   assert.match(html, /<option value="medium" selected>medium<\/option>/);
